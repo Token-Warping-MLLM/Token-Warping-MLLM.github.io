@@ -1,0 +1,1733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Token Warping Helps MLLMs Look from Nearby Viewpoints</title>
+  <meta name="description" content="Token Warping: A simple, training-free method for enabling MLLMs to reason about scenes from nearby viewpoints by warping image tokens instead of pixels.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    /* ===== CSS Custom Properties ===== */
+    :root {
+      --blue-50: #eff6ff;
+      --blue-100: #dbeafe;
+      --blue-200: #bfdbfe;
+      --blue-500: #3b82f6;
+      --blue-600: #2563eb;
+      --blue-700: #1d4ed8;
+      --blue-800: #1e40af;
+      --blue-900: #1e3a8a;
+      --green-50: #f0fdf4;
+      --green-100: #dcfce7;
+      --green-500: #22c55e;
+      --green-600: #16a34a;
+      --green-700: #15803d;
+      --red-50: #fef2f2;
+      --red-100: #fee2e2;
+      --red-500: #ef4444;
+      --red-600: #dc2626;
+      --amber-50: #fffbeb;
+      --amber-100: #fef3c7;
+      --amber-500: #f59e0b;
+      --slate-50: #f8fafc;
+      --slate-100: #f1f5f9;
+      --slate-200: #e2e8f0;
+      --slate-300: #cbd5e1;
+      --slate-400: #94a3b8;
+      --slate-500: #64748b;
+      --slate-600: #475569;
+      --slate-700: #334155;
+      --slate-800: #1e293b;
+      --slate-900: #0f172a;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-serif: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+      --max-width: 900px;
+      --max-width-wide: 1100px;
+      --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+      --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+      --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+      --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+
+    /* ===== Reset & Base ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; scroll-padding-top: 70px; }
+    body {
+      font-family: var(--font-sans);
+      color: var(--slate-800);
+      background: var(--slate-50);
+      line-height: 1.7;
+      font-size: 16px;
+      -webkit-font-smoothing: antialiased;
+    }
+    img { max-width: 100%; height: auto; display: block; }
+    a { color: var(--blue-600); text-decoration: none; }
+    a:hover { color: var(--blue-700); }
+
+    /* ===== Navigation ===== */
+    .nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--slate-200);
+      transition: box-shadow 0.3s;
+    }
+    .nav.scrolled { box-shadow: var(--shadow-md); }
+    .nav-inner {
+      max-width: var(--max-width-wide);
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+    }
+    .nav-title {
+      font-weight: 700;
+      font-size: 14px;
+      color: var(--slate-800);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 280px;
+    }
+    .nav-links { display: flex; gap: 4px; }
+    .nav-links a {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--slate-600);
+      padding: 6px 12px;
+      border-radius: 6px;
+      transition: all 0.2s;
+    }
+    .nav-links a:hover {
+      color: var(--blue-600);
+      background: var(--blue-50);
+    }
+
+    /* ===== Layout ===== */
+    .container { max-width: var(--max-width); margin: 0 auto; padding: 0 24px; }
+    .container-wide { max-width: var(--max-width-wide); margin: 0 auto; padding: 0 24px; }
+    section { padding: 80px 0; }
+    section + section { padding-top: 0; }
+
+    /* ===== Hero ===== */
+    .hero {
+      padding: 120px 0 60px;
+      text-align: center;
+      background: linear-gradient(180deg, var(--blue-50) 0%, var(--slate-50) 100%);
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--blue-100);
+      color: var(--blue-700);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 5px 14px;
+      border-radius: 20px;
+      margin-bottom: 24px;
+      letter-spacing: 0.02em;
+    }
+    .hero h1 {
+      font-size: clamp(28px, 4.5vw, 46px);
+      font-weight: 800;
+      line-height: 1.15;
+      color: var(--slate-900);
+      max-width: 800px;
+      margin: 0 auto 24px;
+      letter-spacing: -0.02em;
+    }
+    .hero h1 .highlight {
+      background: linear-gradient(135deg, var(--blue-600), #7c3aed);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .authors {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 6px 18px;
+      font-size: 16px;
+      color: var(--slate-700);
+      margin-bottom: 6px;
+    }
+    .authors span { white-space: nowrap; }
+    .authors .equal-contrib { font-size: 11px; vertical-align: super; color: var(--slate-800); }
+    .affiliation {
+      font-size: 15px;
+      color: var(--slate-500);
+      margin-bottom: 28px;
+      font-weight: 500;
+    }
+    .hero-links {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 48px;
+    }
+    .hero-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 22px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    .hero-link.primary {
+      background: var(--blue-600);
+      color: white;
+    }
+    .hero-link.primary:hover {
+      background: var(--blue-700);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-md);
+      color: white;
+    }
+    .hero-link.secondary {
+      background: white;
+      color: var(--slate-700);
+      border: 1px solid var(--slate-200);
+    }
+    .hero-link.secondary:hover {
+      border-color: var(--slate-300);
+      background: var(--slate-50);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-md);
+      color: var(--slate-700);
+    }
+    .hero-link i { font-size: 16px; }
+
+    /* ===== Teaser Figure ===== */
+    .teaser-figure {
+      max-width: var(--max-width);
+      margin: 0 auto;
+      background: white;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-lg);
+      overflow: hidden;
+      border: 1px solid var(--slate-200);
+    }
+    .teaser-figure img {
+      width: calc(100% - 32px);
+      display: block;
+      margin: 16px auto 0;
+    }
+    .teaser-figure .figure-placeholder {
+      width: 100%;
+      min-height: 380px;
+      background: linear-gradient(135deg, var(--slate-100), var(--blue-50));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--slate-400);
+      font-size: 14px;
+      text-align: center;
+      padding: 40px;
+    }
+    .teaser-caption {
+      padding: 16px 24px;
+      font-size: 14px;
+      color: var(--slate-600);
+      background: var(--slate-50);
+      border-top: 1px solid var(--slate-100);
+      line-height: 1.6;
+    }
+    .teaser-caption strong { color: var(--slate-800); }
+
+    /* ===== TLDR Banner ===== */
+    .tldr {
+      padding: 48px 0;
+    }
+    .tldr-box {
+      background: linear-gradient(135deg, var(--blue-600), #6366f1);
+      border-radius: var(--radius);
+      padding: 32px 40px;
+      color: white;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .tldr-box::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      right: -20%;
+      width: 300px;
+      height: 300px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 50%;
+    }
+    .tldr-box::after {
+      content: '';
+      position: absolute;
+      bottom: -40%;
+      left: -10%;
+      width: 200px;
+      height: 200px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 50%;
+    }
+    .tldr-label {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      opacity: 0.8;
+      margin-bottom: 12px;
+    }
+    .tldr-text {
+      font-size: clamp(17px, 2.5vw, 22px);
+      font-weight: 500;
+      line-height: 1.5;
+      position: relative;
+      z-index: 1;
+    }
+    .tldr-text em {
+      font-style: normal;
+      font-weight: 700;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      text-decoration-color: rgba(255,255,255,0.5);
+    }
+
+    /* ===== Section Headers ===== */
+    .section-header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+    .section-label {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--blue-600);
+      margin-bottom: 10px;
+    }
+    .section-title {
+      font-size: clamp(24px, 3.5vw, 34px);
+      font-weight: 800;
+      color: var(--slate-900);
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+    }
+    .section-subtitle {
+      font-size: 17px;
+      color: var(--slate-500);
+      margin-top: 12px;
+      max-width: 650px;
+      margin-left: auto;
+      margin-right: auto;
+      line-height: 1.6;
+    }
+
+    /* ===== Abstract ===== */
+    .abstract-section { padding: 60px 0 80px; }
+    .abstract-content {
+      font-family: var(--font-serif);
+      font-size: 17px;
+      line-height: 1.85;
+      color: var(--slate-700);
+      max-width: 780px;
+      margin: 0 auto;
+      text-align: justify;
+    }
+
+    /* ===== Key Insight Section ===== */
+    .insight-section {
+      padding: 80px 0;
+      background: white;
+      border-top: 1px solid var(--slate-100);
+      border-bottom: 1px solid var(--slate-100);
+    }
+    .insight-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      align-items: center;
+    }
+    .insight-text h3 {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--slate-900);
+      margin-bottom: 16px;
+      line-height: 1.3;
+    }
+    .insight-text p {
+      font-size: 15px;
+      color: var(--slate-600);
+      margin-bottom: 16px;
+      line-height: 1.7;
+    }
+    .insight-callout {
+      background: var(--green-50);
+      border-left: 4px solid var(--green-500);
+      padding: 16px 20px;
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      margin-top: 20px;
+    }
+    .insight-callout p {
+      font-size: 14px;
+      color: var(--green-700);
+      margin: 0;
+      font-weight: 500;
+    }
+
+    /* ===== SVG Chart ===== */
+    .chart-container {
+      background: white;
+      border-radius: var(--radius);
+      border: 1px solid var(--slate-200);
+      padding: 24px;
+      box-shadow: var(--shadow-sm);
+    }
+    .chart-container .chart-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--slate-600);
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    /* ===== Method Section ===== */
+    .method-section { padding: 80px 0; }
+
+    .comparison-cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-bottom: 48px;
+    }
+    .comp-card {
+      border-radius: var(--radius);
+      padding: 28px;
+      border: 2px solid;
+      position: relative;
+    }
+    .comp-card.bad {
+      background: var(--red-50);
+      border-color: var(--red-100);
+    }
+    .comp-card.good {
+      background: var(--green-50);
+      border-color: var(--green-100);
+    }
+    .comp-card .card-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      margin-bottom: 14px;
+    }
+    .comp-card.bad .card-icon { background: var(--red-100); color: var(--red-600); }
+    .comp-card.good .card-icon { background: var(--green-100); color: var(--green-600); }
+    .comp-card h4 {
+      font-size: 17px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .comp-card.bad h4 { color: var(--red-600); }
+    .comp-card.good h4 { color: var(--green-700); }
+    .comp-card p {
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--slate-600);
+    }
+    .comp-card .card-tag {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.03em;
+    }
+    .comp-card.bad .card-tag { background: var(--red-100); color: var(--red-600); }
+    .comp-card.good .card-tag { background: var(--green-100); color: var(--green-700); }
+
+    /* Figure container */
+    .figure-container {
+      background: white;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      border: 1px solid var(--slate-200);
+      margin: 40px 0;
+    }
+    .figure-container img {
+      width: calc(100% - 32px);
+      display: block;
+      margin: 16px auto 0;
+    }
+    .figure-container .figure-placeholder {
+      width: 100%;
+      min-height: 280px;
+      background: linear-gradient(135deg, var(--slate-100), var(--blue-50));
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--slate-400);
+      font-size: 14px;
+      text-align: center;
+      padding: 40px;
+      gap: 8px;
+    }
+    .figure-container .figure-placeholder i {
+      font-size: 32px;
+      margin-bottom: 8px;
+      opacity: 0.5;
+    }
+    .figure-caption {
+      padding: 14px 24px;
+      font-size: 13px;
+      color: var(--slate-500);
+      background: var(--slate-50);
+      border-top: 1px solid var(--slate-100);
+      line-height: 1.6;
+    }
+    .figure-caption strong { color: var(--slate-700); }
+
+    /* ===== Method Details ===== */
+    .method-detail {
+      margin: 48px 0;
+    }
+    .method-detail h3 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--slate-900);
+      margin-bottom: 16px;
+    }
+    .method-detail p {
+      font-size: 15px;
+      color: var(--slate-600);
+      line-height: 1.7;
+      margin-bottom: 16px;
+    }
+
+    /* Warping strategies grid */
+    .strategy-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin: 24px 0;
+    }
+    .strategy-card {
+      background: white;
+      border: 1px solid var(--slate-200);
+      border-radius: var(--radius-sm);
+      padding: 24px;
+      transition: box-shadow 0.2s;
+    }
+    .strategy-card:hover { box-shadow: var(--shadow-md); }
+    .strategy-card.recommended {
+      border-color: var(--blue-200);
+      background: var(--blue-50);
+    }
+    .strategy-card .strategy-label {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 8px;
+    }
+    .strategy-card .strategy-label.fwd { color: var(--slate-400); }
+    .strategy-card .strategy-label.bwd { color: var(--blue-600); }
+    .strategy-card h4 {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--slate-800);
+      margin-bottom: 8px;
+    }
+    .strategy-card p {
+      font-size: 13px;
+      color: var(--slate-500);
+      line-height: 1.6;
+      margin: 0;
+    }
+    .strategy-card .rec-badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      background: var(--blue-600);
+      color: white;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-top: 10px;
+    }
+
+    /* ===== Pipeline Diagram ===== */
+    .pipeline {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin: 32px 0;
+      flex-wrap: wrap;
+    }
+    .pipeline-step {
+      background: white;
+      border: 2px solid var(--slate-200);
+      border-radius: var(--radius-sm);
+      padding: 16px 20px;
+      text-align: center;
+      min-width: 120px;
+      transition: all 0.2s;
+      cursor: pointer;
+      user-select: none;
+    }
+    .pipeline-step:hover {
+      border-color: var(--blue-300);
+      box-shadow: var(--shadow-md);
+    }
+    .pipeline-step.highlight,
+    .pipeline-step.active {
+      border-color: var(--blue-400);
+      background: var(--blue-50);
+    }
+    .pipeline-step.active {
+      border-color: var(--blue-500);
+      box-shadow: 0 0 0 3px var(--blue-100);
+    }
+    /* Pipeline detail panel */
+    .pipeline-detail {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.4s ease, opacity 0.3s ease, margin 0.3s ease;
+      opacity: 0;
+      margin: 0 0 0;
+    }
+    .pipeline-detail.open {
+      max-height: 300px;
+      opacity: 1;
+      margin: 20px 0 0;
+    }
+    .pipeline-detail-inner {
+      background: white;
+      border: 1px solid var(--slate-200);
+      border-left: 4px solid var(--blue-500);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      padding: 20px 24px;
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .pipeline-detail-icon {
+      font-size: 28px;
+      flex-shrink: 0;
+      line-height: 1;
+      margin-top: 2px;
+    }
+    .pipeline-detail-text h4 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--slate-800);
+      margin-bottom: 6px;
+    }
+    .pipeline-detail-text p {
+      font-size: 14px;
+      color: var(--slate-600);
+      line-height: 1.65;
+      margin: 0;
+    }
+    .pipeline-step .step-icon {
+      font-size: 24px;
+      margin-bottom: 6px;
+    }
+    .pipeline-step .step-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--slate-700);
+    }
+    .pipeline-step .step-sub {
+      font-size: 11px;
+      color: var(--slate-400);
+      margin-top: 2px;
+    }
+    .pipeline-arrow {
+      color: var(--slate-300);
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+
+    /* ===== ViewBench Section ===== */
+    .viewbench-section {
+      padding: 80px 0;
+      background: white;
+      border-top: 1px solid var(--slate-100);
+      border-bottom: 1px solid var(--slate-100);
+    }
+    .task-cards {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      margin: 32px 0;
+    }
+    .task-card {
+      background: var(--slate-50);
+      border: 1px solid var(--slate-200);
+      border-radius: var(--radius);
+      padding: 24px;
+      transition: all 0.2s;
+    }
+    .task-card:hover {
+      box-shadow: var(--shadow-md);
+      transform: translateY(-2px);
+    }
+    .task-card .task-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      margin-bottom: 14px;
+    }
+    .task-card:nth-child(1) .task-icon { background: var(--blue-100); color: var(--blue-600); }
+    .task-card:nth-child(2) .task-icon { background: #ede9fe; color: #7c3aed; }
+    .task-card:nth-child(3) .task-icon { background: var(--amber-100); color: #d97706; }
+    .task-card h4 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--slate-800);
+      margin-bottom: 8px;
+    }
+    .task-card p {
+      font-size: 13px;
+      color: var(--slate-500);
+      line-height: 1.6;
+    }
+    .task-card code {
+      font-size: 12px;
+      background: var(--slate-200);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--slate-700);
+      font-weight: 600;
+    }
+
+    /* ===== Results Section ===== */
+    .results-section { padding: 80px 0; }
+
+    /* Results Stats */
+    .result-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      margin-bottom: 48px;
+    }
+    .stat-card {
+      background: white;
+      border: 1px solid var(--slate-200);
+      border-radius: var(--radius);
+      padding: 24px;
+      text-align: center;
+    }
+    .stat-card .stat-number {
+      font-size: 36px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, var(--blue-600), #7c3aed);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .stat-card .stat-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--slate-500);
+      margin-top: 4px;
+    }
+    .stat-card .stat-detail {
+      font-size: 12px;
+      color: var(--slate-400);
+      margin-top: 2px;
+    }
+
+    /* Results Table */
+    .table-wrapper {
+      overflow-x: auto;
+      margin: 32px 0;
+      border-radius: var(--radius);
+      border: 1px solid var(--slate-200);
+      background: white;
+      box-shadow: var(--shadow-sm);
+    }
+    .results-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      min-width: 750px;
+    }
+    .results-table thead {
+      background: var(--slate-50);
+    }
+    .results-table thead th {
+      padding: 12px 14px;
+      text-align: center;
+      font-weight: 700;
+      color: var(--slate-700);
+      border-bottom: 2px solid var(--slate-200);
+      font-size: 12px;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+    .results-table thead th.left { text-align: left; }
+    .results-table thead th.group-header {
+      border-bottom: 1px solid var(--slate-200);
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--slate-800);
+    }
+    .results-table tbody td {
+      padding: 10px 14px;
+      text-align: center;
+      border-bottom: 1px solid var(--slate-100);
+      white-space: nowrap;
+    }
+    .results-table tbody td.left {
+      text-align: left;
+      font-weight: 500;
+      color: var(--slate-700);
+    }
+    .results-table tbody tr.separator td {
+      padding: 2px 0;
+      border-bottom: 2px solid var(--slate-200);
+      background: var(--slate-50);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--slate-500);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .results-table tbody tr.our-method {
+      background: var(--blue-50);
+    }
+    .results-table tbody tr.our-method td {
+      border-bottom-color: var(--blue-100);
+    }
+    .results-table tbody tr.our-best {
+      background: var(--green-50);
+    }
+    .results-table tbody tr.our-best td {
+      border-bottom-color: var(--green-100);
+      font-weight: 600;
+    }
+    .results-table .best {
+      font-weight: 800;
+      color: var(--blue-700);
+    }
+    .results-table .second-best {
+      font-weight: 700;
+      color: var(--blue-600);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .results-table .method-tag {
+      display: inline-block;
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      margin-left: 4px;
+      font-weight: 600;
+    }
+    .method-tag.ours { background: var(--blue-100); color: var(--blue-700); }
+    .method-tag.baseline { background: var(--slate-100); color: var(--slate-600); }
+    .results-table .na { color: var(--slate-300); }
+
+    /* ===== Qualitative Results ===== */
+    .qual-results {
+      margin: 48px 0 0;
+    }
+    .qual-results h3 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--slate-900);
+      margin-bottom: 16px;
+    }
+    .qual-results p {
+      font-size: 15px;
+      color: var(--slate-600);
+      margin-bottom: 24px;
+    }
+
+    /* Interactive Gallery */
+    .gallery-controls {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    .gallery-btn {
+      padding: 7px 16px;
+      border: 1px solid var(--slate-200);
+      border-radius: 6px;
+      background: white;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--slate-600);
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: var(--font-sans);
+    }
+    .gallery-btn:hover {
+      border-color: var(--blue-300);
+      color: var(--blue-600);
+    }
+    .gallery-btn.active {
+      background: var(--blue-600);
+      color: white;
+      border-color: var(--blue-600);
+    }
+    .gallery-scene-info {
+      background: var(--slate-50);
+      border: 1px solid var(--slate-200);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      font-size: 13px;
+      color: var(--slate-600);
+    }
+    .gallery-scene-info code {
+      font-size: 12px;
+      background: var(--slate-200);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--slate-700);
+      font-weight: 600;
+    }
+    .gallery-scene-info strong {
+      color: var(--slate-800);
+    }
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+    .gallery-item {
+      background: white;
+      border: 1px solid var(--slate-200);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      transition: box-shadow 0.2s;
+    }
+    .gallery-item:hover { box-shadow: var(--shadow-md); }
+    .gallery-item img {
+      width: 100%;
+      aspect-ratio: 1;
+      object-fit: cover;
+      display: block;
+    }
+    .gallery-item-label {
+      padding: 6px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      text-align: center;
+      border-top: 1px solid var(--slate-100);
+      color: var(--slate-500);
+    }
+    .gallery-item-response {
+      padding: 2px 10px 8px;
+      font-size: 11px;
+      text-align: center;
+      color: var(--slate-400);
+    }
+    .gallery-item-response .correct { color: var(--green-600); font-weight: 700; }
+    .gallery-item-response .wrong { color: var(--red-500); font-weight: 700; }
+    .gallery-item.highlight-good { border-color: var(--green-500); border-width: 2px; }
+    .gallery-item.highlight-bad { border-color: var(--red-200); }
+    .gallery-item.highlight-gt { border-color: var(--slate-400); border-width: 2px; }
+    @media (max-width: 768px) {
+      .gallery-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    /* ===== Citation Section ===== */
+    .citation-section {
+      padding: 80px 0;
+      background: white;
+      border-top: 1px solid var(--slate-100);
+    }
+    .bibtex-box {
+      background: var(--slate-900);
+      color: #e2e8f0;
+      padding: 24px 28px;
+      border-radius: var(--radius);
+      font-family: 'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', monospace;
+      font-size: 13px;
+      line-height: 1.7;
+      overflow-x: auto;
+      position: relative;
+    }
+    .bibtex-box .copy-btn {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: var(--slate-700);
+      color: var(--slate-300);
+      border: none;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: var(--font-sans);
+    }
+    .bibtex-box .copy-btn:hover {
+      background: var(--slate-600);
+      color: white;
+    }
+    .bibtex-box .copy-btn.copied {
+      background: var(--green-600);
+      color: white;
+    }
+
+    /* ===== Footer ===== */
+    .footer {
+      padding: 32px 0;
+      text-align: center;
+      font-size: 13px;
+      color: var(--slate-400);
+      border-top: 1px solid var(--slate-100);
+    }
+    .footer a { color: var(--slate-500); }
+    .footer a:hover { color: var(--blue-600); }
+
+    /* ===== Animations ===== */
+    .fade-in {
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+    .fade-in.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ===== Responsive ===== */
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .hero { padding: 100px 0 48px; }
+      .insight-grid { grid-template-columns: 1fr; gap: 32px; }
+      .comparison-cards { grid-template-columns: 1fr; }
+      .strategy-grid { grid-template-columns: 1fr; }
+      .task-cards { grid-template-columns: 1fr; }
+      .result-stats { grid-template-columns: 1fr; }
+      .pipeline { gap: 8px; }
+      .pipeline-step { min-width: 90px; padding: 12px 14px; }
+      .pipeline-arrow { font-size: 16px; }
+      section { padding: 56px 0; }
+    }
+
+    @media (max-width: 480px) {
+      .hero h1 { font-size: 24px; }
+      .authors { font-size: 14px; gap: 4px 12px; }
+      .hero-links { flex-direction: column; align-items: center; }
+      .hero-link { width: 100%; justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ===== Navigation ===== -->
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <div class="nav-title">Token Warping</div>
+      <div class="nav-links">
+        <a href="#abstract">Abstract</a>
+        <a href="#insight">Key Insight</a>
+        <a href="#method">Method</a>
+        <a href="#viewbench">ViewBench</a>
+        <a href="#results">Results</a>
+        <a href="#citation">Citation</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ===== Hero Section ===== -->
+  <header class="hero">
+    <div class="container">
+      <div class="hero-badge">
+        <i class="fas fa-eye"></i>
+        CVPR 2026
+      </div>
+      <h1>
+        <span class="highlight">Token Warping</span> Helps MLLMs Look from Nearby Viewpoints
+      </h1>
+      <div class="authors">
+        <span>Phillip Y. Lee<span class="equal-contrib">*</span></span>
+        <span>Chanho Park<span class="equal-contrib">*</span></span>
+        <span>Mingue Park</span>
+        <span>Seungwoo Yoo</span>
+        <span>Juil Koo</span>
+        <span>Minhyuk Sung</span>
+        <span>(* equal contributions)</span>
+      </div>
+      <div class="affiliation">KAIST</div>
+      <div class="hero-links">
+        <a href="#" class="hero-link primary">
+          <i class="fas fa-file-pdf"></i> Paper
+        </a>
+        <a href="#" class="hero-link secondary">
+          <i class="fas fa-book"></i> arXiv
+        </a>
+        <a href="#" class="hero-link secondary">
+          <i class="fab fa-github"></i> Code
+        </a>
+        <a href="#viewbench" class="hero-link secondary">
+          <i class="fas fa-chart-bar"></i> ViewBench
+        </a>
+      </div>
+
+      <!-- Teaser Figure -->
+      <div class="teaser-figure">
+        <img src="static/figures/teaser.png" alt="Token Warping Teaser: Given an input image (View A), the model is asked to imagine how the scene looks from a rotated viewpoint (View B). Token warping rearranges image tokens to simulate the viewpoint change, enabling the MLLM to correctly answer spatial reasoning questions.">
+        <div class="teaser-caption">
+          <strong>Figure 1. Viewpoint Change via Token Warping.</strong> Given an input image (View A), a question is posed from a different viewpoint (View B). Token warping rearranges the image tokens to simulate the view change, enabling the MLLM to correctly answer: <em>"the cup appears on the right side of the book."</em>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===== TL;DR ===== -->
+  <section class="tldr">
+    <div class="container">
+      <div class="tldr-box fade-in">
+        <div class="tldr-label">TL;DR</div>
+        <div class="tldr-text">
+          By warping <em>image tokens</em> instead of pixels, we enable MLLMs to reason about scenes from nearby viewpoints &mdash; <em>no training, no fine-tuning, no pixel synthesis</em> &mdash; outperforming specialist models and generative approaches with minimal inference cost.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Abstract ===== -->
+  <section class="abstract-section" id="abstract">
+    <div class="container">
+      <div class="section-header fade-in">
+        <div class="section-label">Abstract</div>
+      </div>
+      <div class="abstract-content fade-in">
+        Can warping tokens, rather than pixels, help multimodal large language models (MLLMs) understand how a scene appears from nearby viewpoints? While MLLMs perform well on a single image reasoning, they remain fragile to viewpoint changes because pixel-level warping is highly sensitive to small depth errors and often introduces geometric distortions. Drawing on theories of mental imagery that posit part-level structural representations as the basis for human perspective transformation, we examine whether image tokens in ViT-based MLLMs serve as an effective substrate for viewpoint warping. We compare two token-level transformation strategies, forward and backward warping, and find that <em>backward token fetching</em>, which selects tokens at target-view grid locations and retrieves their counterparts from the source view, achieves greater stability and better preserves semantic coherence under viewpoint shifts. Experiments on our proposed <strong>ViewBench</strong> benchmark demonstrate that token-level warping enables MLLMs to reason reliably from nearby viewpoints, while consistently outperforming all baselines, including pixel-warping approaches, MLLMs fine-tuned for spatial reasoning, and a generative warping method.
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Key Insight: Tokens as Perceptual Atoms ===== -->
+  <section class="insight-section" id="insight">
+    <div class="container">
+      <div class="section-header fade-in">
+        <div class="section-label">Key Insight</div>
+        <h2 class="section-title">Why Tokens, Not Pixels?</h2>
+        <p class="section-subtitle">Image tokens are inherently robust to positional perturbations, making them ideal for geometric viewpoint transformations.</p>
+      </div>
+
+      <div class="insight-grid fade-in">
+        <div class="insight-text">
+          <h3>Tokens Are Robust Perceptual Atoms</h3>
+          <p>
+            Modern ViT-based MLLMs represent images as a set of <strong>image tokens</strong> &mdash; localized, semantically meaningful units. Inspired by theories of <em>mental imagery</em>, we hypothesize that tokens provide the right granularity for viewpoint transformation.
+          </p>
+          <p>
+            Object-level representations are too coarse, losing spatial detail. Pixel-level representations are too fine-grained and highly sensitive to even small depth or geometric noise. <strong>Image tokens lie between these extremes</strong>, retaining rich visual detail while remaining robust to local perturbations.
+          </p>
+          <div class="insight-callout">
+            <p><i class="fas fa-lightbulb" style="margin-right: 6px;"></i> Even with perturbations of up to 17.5 pixels, MLLM accuracy degrades only mildly &mdash; demonstrating that tokens naturally tolerate the noise introduced by depth-based warping.</p>
+          </div>
+        </div>
+
+        <!-- Noise Sensitivity Chart (Fig 5) -->
+        <div class="chart-container">
+          <div class="chart-title">Fetching Position Noise Sensitivity (Fig. 5)</div>
+          <img src="static/figures/noise_sensitivity.png" alt="Token representations in MLLMs are highly robust to positional noise. Accuracy remains stable even with perturbations up to 17.5 pixels." style="width: 100%; border-radius: 8px;">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Method Section ===== -->
+  <section class="method-section" id="method">
+    <div class="container">
+      <div class="section-header fade-in">
+        <div class="section-label">Method</div>
+        <h2 class="section-title">Token Warping for Viewpoint Changes</h2>
+        <p class="section-subtitle">A lightweight, training-free approach that warps image tokens using depth maps to simulate novel viewpoints.</p>
+      </div>
+
+      <!-- Pipeline Diagram -->
+      <div class="pipeline fade-in">
+        <div class="pipeline-step" onclick="togglePipelineStep(0, this)">
+          <div class="step-icon">&#x1f5bc;</div>
+          <div class="step-label">Source Image</div>
+          <div class="step-sub">I<sub>S</sub></div>
+        </div>
+        <div class="pipeline-arrow"><i class="fas fa-arrow-right"></i></div>
+        <div class="pipeline-step" onclick="togglePipelineStep(1, this)">
+          <div class="step-icon">&#x1f4cf;</div>
+          <div class="step-label">Depth Map</div>
+          <div class="step-sub">Monocular depth</div>
+        </div>
+        <div class="pipeline-arrow"><i class="fas fa-arrow-right"></i></div>
+        <div class="pipeline-step highlight" onclick="togglePipelineStep(2, this)">
+          <div class="step-icon">&#x1f504;</div>
+          <div class="step-label">Token Warping</div>
+          <div class="step-sub">Backward fetching</div>
+        </div>
+        <div class="pipeline-arrow"><i class="fas fa-arrow-right"></i></div>
+        <div class="pipeline-step" onclick="togglePipelineStep(3, this)">
+          <div class="step-icon">&#x1f9e9;</div>
+          <div class="step-label">Target Tokens</div>
+          <div class="step-sub">Regular grid</div>
+        </div>
+        <div class="pipeline-arrow"><i class="fas fa-arrow-right"></i></div>
+        <div class="pipeline-step" onclick="togglePipelineStep(4, this)">
+          <div class="step-icon">&#x1f916;</div>
+          <div class="step-label">MLLM</div>
+          <div class="step-sub">Spatial reasoning</div>
+        </div>
+      </div>
+      <!-- Pipeline detail panel (expands on click) -->
+      <div class="pipeline-detail" id="pipelineDetail">
+        <div class="pipeline-detail-inner">
+          <div class="pipeline-detail-icon" id="pipelineDetailIcon"></div>
+          <div class="pipeline-detail-text">
+            <h4 id="pipelineDetailTitle"></h4>
+            <p id="pipelineDetailDesc"></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pixel vs Token Comparison -->
+      <div class="comparison-cards fade-in">
+        <div class="comp-card bad">
+          <div class="card-tag">Baseline</div>
+          <div class="card-icon"><i class="fas fa-th"></i></div>
+          <h4>Pixel-Wise Warping</h4>
+          <p>Retrieves individual pixels at each target coordinate. Even small depth errors cause severe local distortions and semantic degradation, leading to degraded MLLM understanding.</p>
+        </div>
+        <div class="comp-card good">
+          <div class="card-tag">Ours</div>
+          <div class="card-icon"><i class="fas fa-puzzle-piece"></i></div>
+          <h4>Token Warping</h4>
+          <p>Retrieves intact tokens (patches) from the source view, preserving local semantics as coherent units. Robust to positional noise, enabling reliable viewpoint-aware perception.</p>
+        </div>
+      </div>
+
+      <!-- Pixel vs Token Figure -->
+      <div class="figure-container fade-in">
+        <img src="static/figures/pixel_vs_token.png" alt="Pixel-wise vs Token Warping comparison showing how pixel warping introduces distortions while token warping preserves semantic content.">
+        <div class="figure-caption">
+          <strong>Figure 4. Pixel-Wise vs. Token Warping.</strong> (A) Pixel-wise warping retrieves pixels for each target coordinate, but patchifying the warped image introduces local distortions. (B) Token warping directly retrieves intact tokens from the source view, preserving semantics and improving viewpoint-aware perception.
+        </div>
+      </div>
+
+      <!-- Pixel Warping Limitations Figure -->
+      <div class="figure-container fade-in">
+        <img src="static/figures/pixel_warping_limitation.png" alt="Limitations of pixel-wise warping: both forward and backward pixel warping produce significant distortions.">
+        <div class="figure-caption">
+          <strong>Figure 3. Limitations of Pixel-Wise Warping.</strong> Pixel-wise warping to a target viewpoint often introduces local distortions and semantic degradation. In both forward (top) and backward (bottom) warping, the book from the source view appears significantly distorted after transformation.
+        </div>
+      </div>
+
+      <!-- Warping Strategies -->
+      <div class="method-detail fade-in">
+        <h3>Warping Direction &amp; Fetching Strategy</h3>
+        <p>
+          We explore two axes of design: the <strong>warping direction</strong> (forward vs. backward) and the <strong>token fetching strategy</strong> (nearest vs. adaptive). Backward warping with nearest fetching emerges as the practical best choice.
+        </p>
+
+        <div class="strategy-grid">
+          <div class="strategy-card">
+            <div class="strategy-label fwd">Forward</div>
+            <h4>Forward Warping</h4>
+            <p>Projects source tokens to target viewpoint positions. Results in irregular, sparse token placement with holes &mdash; out-of-distribution for MLLMs trained on dense grids.</p>
+          </div>
+          <div class="strategy-card recommended">
+            <div class="strategy-label bwd">Backward (Ours)</div>
+            <h4>Backward Warping</h4>
+            <p>Defines a regular grid at the target view and maps each position back to the source. Produces dense, regularly spaced tokens that MLLMs expect.</p>
+            <div class="rec-badge">Best Performance</div>
+          </div>
+          <div class="strategy-card">
+            <div class="strategy-label fwd">Nearest Fetching</div>
+            <h4>Nearest Fetching</h4>
+            <p>Finds the closest existing token in the source grid for each mapped coordinate. Simple and efficient &mdash; performs comparably to adaptive fetching.</p>
+          </div>
+          <div class="strategy-card">
+            <div class="strategy-label fwd">Adaptive Fetching</div>
+            <h4>Adaptive Fetching</h4>
+            <p>Dynamically crops a new patch centered at the mapped coordinate for re-encoding. More flexible but requires additional computation.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Interactive 3D Warping Visualization -->
+      <div class="figure-container fade-in" style="margin: 48px 0;">
+        <iframe src="warping_3d_visualization.html" style="width: 100%; height: 420px; border: none; display: block; background: white;" loading="lazy"></iframe>
+        <div class="figure-caption">
+          <strong>Interactive Demo: Forward &amp; Backward Warping.</strong> Toggle between warping modes and adjust camera parameters to explore how tokens map between viewpoints. Notice holes and overlaps in forward mode; compare nearest vs. adaptive fetching in backward mode.
+        </div>
+      </div>
+
+      <!-- Fetching Strategies Figure -->
+      <div class="figure-container fade-in">
+        <img src="static/figures/fetching_strategies.png" alt="Token fetching strategies: nearest fetching selects the closest existing token, adaptive fetching dynamically crops a new patch.">
+        <div class="figure-caption">
+          <strong>Figure 7. Token Fetching Strategies.</strong> (A) <em>Nearest fetching</em> selects the closest existing token from the source image grid. (B) <em>Adaptive fetching</em> dynamically crops a patch centered at the mapped coordinate to derive a token precisely centered at the target location.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== ViewBench Section ===== -->
+  <section class="viewbench-section" id="viewbench">
+    <div class="container">
+      <div class="section-header fade-in">
+        <div class="section-label">Benchmark</div>
+        <h2 class="section-title">ViewBench</h2>
+        <p class="section-subtitle">A benchmark for evaluating MLLMs on spatial reasoning tasks that require imagining a scene from alternative viewpoints.</p>
+      </div>
+
+      <div class="task-cards fade-in">
+        <div class="task-card">
+          <div class="task-icon"><i class="fas fa-font"></i></div>
+          <h4>ViewBench-Text</h4>
+          <p>Evaluate left-right spatial reasoning between two text-labeled points after a viewpoint change. Tests whether MLLMs can infer how relationships reverse.</p>
+          <p style="margin-top: 8px;"><code>Text Labels</code></p>
+        </div>
+        <div class="task-card">
+          <div class="task-icon"><i class="fas fa-shapes"></i></div>
+          <h4>ViewBench-Shape</h4>
+          <p>Same spatial reasoning task but using simple geometric shapes (star, triangle) as reference points instead of text labels.</p>
+          <p style="margin-top: 8px;"><code>Shape Labels</code></p>
+        </div>
+        <div class="task-card">
+          <div class="task-icon"><i class="fas fa-cube"></i></div>
+          <h4>ViewBench-Object</h4>
+          <p>Assess whether the MLLM can accurately describe objects as they would appear from the target viewpoint, preserving fine-grained visual details.</p>
+          <p style="margin-top: 8px;"><code>Description (1-10)</code></p>
+        </div>
+      </div>
+
+      <div class="figure-container fade-in">
+        <img src="static/figures/viewbench.png" alt="ViewBench examples showing source-target image pairs with spatial reasoning questions.">
+        <div class="figure-caption">
+          <strong>Figure 6. ViewBench.</strong> Example source-target image pairs with corresponding questions and answers. Tasks evaluate MLLM's ability to infer spatial relationships from nearby viewpoints (<code>Text</code>, <code>Shape</code>) and to describe object properties visible in the warped target view (<code>Object</code>).
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Results Section ===== -->
+  <section class="results-section" id="results">
+    <div class="container">
+      <div class="section-header fade-in">
+        <div class="section-label">Results</div>
+        <h2 class="section-title">Quantitative Evaluation</h2>
+        <p class="section-subtitle">Backward token warping consistently outperforms all baselines across every task and difficulty level.</p>
+      </div>
+
+      <!-- Key Stats -->
+      <div class="result-stats fade-in">
+        <div class="stat-card">
+          <div class="stat-number">+14.6%p</div>
+          <div class="stat-label">vs. Specialist MLLMs</div>
+          <div class="stat-detail">ViewBench-Text (5-15 overlap)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">+12.4%p</div>
+          <div class="stat-label">vs. Pixel Warping</div>
+          <div class="stat-detail">ViewBench-Shape (5-15 overlap)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number">+1.8</div>
+          <div class="stat-label">vs. GenWarp (NVS)</div>
+          <div class="stat-detail">ViewBench-Object (5-15 score)</div>
+        </div>
+      </div>
+
+      <!-- Results Table -->
+      <div class="table-wrapper fade-in">
+        <table class="results-table">
+          <thead>
+            <tr>
+              <th class="left" rowspan="2" style="min-width:160px;">Method</th>
+              <th class="group-header" colspan="3">ViewBench-Text (%)</th>
+              <th class="group-header" colspan="3">ViewBench-Shape (%)</th>
+              <th class="group-header" colspan="3">ViewBench-Object (1-10)</th>
+            </tr>
+            <tr>
+              <th>5-15</th><th>15-25</th><th>25-35</th>
+              <th>5-15</th><th>15-25</th><th>25-35</th>
+              <th>5-15</th><th>15-25</th><th>25-35</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Separator: Specialist MLLMs -->
+            <tr class="separator">
+              <td colspan="10" style="padding-left: 14px; text-align: left;">Specialist MLLMs</td>
+            </tr>
+            <tr>
+              <td class="left">SpatialReasoner</td>
+              <td>46.73</td><td>53.30</td><td>53.71</td>
+              <td>33.72</td><td>38.27</td><td>48.15</td>
+              <td class="na">&mdash;</td><td class="na">&mdash;</td><td class="na">&mdash;</td>
+            </tr>
+            <tr>
+              <td class="left">VLM-3R</td>
+              <td>63.82</td><td>70.56</td><td>60.57</td>
+              <td>49.22</td><td>49.79</td><td>50.21</td>
+              <td class="na">&mdash;</td><td class="na">&mdash;</td><td class="na">&mdash;</td>
+            </tr>
+            <tr>
+              <td class="left">ViLaSR</td>
+              <td>44.22</td><td>52.28</td><td>48.00</td>
+              <td>22.87</td><td>23.05</td><td>34.57</td>
+              <td class="na">&mdash;</td><td class="na">&mdash;</td><td class="na">&mdash;</td>
+            </tr>
+            <tr>
+              <td class="left">Qwen2.5-VL</td>
+              <td>46.23</td><td>59.39</td><td>52.00</td>
+              <td>24.42</td><td>25.10</td><td>37.86</td>
+              <td class="na">&mdash;</td><td class="na">&mdash;</td><td class="na">&mdash;</td>
+            </tr>
+            <!-- Separator: Novel View Synthesis -->
+            <tr class="separator">
+              <td colspan="10" style="padding-left: 14px; text-align: left;">Novel View Synthesis</td>
+            </tr>
+            <tr>
+              <td class="left">GenWarp</td>
+              <td>69.35</td><td>71.07</td><td>66.29</td>
+              <td>53.10</td><td>47.33</td><td>55.14</td>
+              <td>4.32</td><td>4.81</td><td>4.34</td>
+            </tr>
+            <!-- Separator: Pixel-Wise Warping -->
+            <tr class="separator">
+              <td colspan="10" style="padding-left: 14px; text-align: left;">Pixel-Wise Warping</td>
+            </tr>
+            <tr>
+              <td class="left">Forward</td>
+              <td>70.85</td><td>73.10</td><td>67.43</td>
+              <td>56.20</td><td>56.79</td><td>60.49</td>
+              <td>3.22</td><td>3.87</td><td>4.54</td>
+            </tr>
+            <tr>
+              <td class="left">Backward</td>
+              <td>71.86</td><td>74.62</td><td>68.57</td>
+              <td>62.40</td><td>58.02</td><td>66.67</td>
+              <td>4.45</td><td>5.48</td><td>5.89</td>
+            </tr>
+            <!-- Separator: Token Warping -->
+            <tr class="separator">
+              <td colspan="10" style="padding-left: 14px; text-align: left;">Token Warping</td>
+            </tr>
+            <tr>
+              <td class="left">Forward</td>
+              <td>60.30</td><td>54.86</td><td>60.57</td>
+              <td>56.98</td><td>55.14</td><td>53.09</td>
+              <td>4.20</td><td>4.37</td><td>3.78</td>
+            </tr>
+            <tr class="our-best">
+              <td class="left">Backward-Nearest <span class="method-tag ours">Ours</span></td>
+              <td class="second-best">74.87</td><td class="best">81.73</td><td class="second-best">76.00</td>
+              <td class="second-best">67.44</td><td class="second-best">63.95</td><td class="second-best">73.25</td>
+              <td class="second-best">4.86</td><td class="second-best">5.57</td><td class="second-best">5.97</td>
+            </tr>
+            <tr class="our-best">
+              <td class="left">Backward-Adaptive <span class="method-tag ours">Ours</span></td>
+              <td class="best">77.89</td><td class="second-best">80.71</td><td class="best">78.86</td>
+              <td class="best">67.44</td><td class="best">66.28</td><td class="best">75.72</td>
+              <td class="best">5.18</td><td class="best">5.76</td><td class="best">6.14</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="text-align: center; font-size: 13px; color: var(--slate-400); margin-top: 8px;">
+        <strong style="color: var(--blue-700);">Bold</strong> = best, <span style="text-decoration: underline; color: var(--blue-600);">underline</span> = second best. View overlap ranges indicate difficulty (lower = harder). Evaluated with Qwen2.5-VL 14B.
+      </p>
+
+      <!-- Qualitative Results -->
+      <div class="qual-results fade-in">
+        <h3>Qualitative Comparisons</h3>
+        <p>
+          Visual comparisons of warped results across methods. Token warping (our backward variants) preserves scene structure and enables correct spatial reasoning, while pixel-wise warping introduces severe artifacts and generative approaches may hallucinate content.
+          The pixelated images in the token warping columns are displayed solely for visualization; the framework operates entirely on token embeddings.
+        </p>
+
+        <!-- Scene selector -->
+        <div class="gallery-controls">
+          <button class="gallery-btn active" onclick="showScene('text1', this)">Text 1</button>
+          <button class="gallery-btn" onclick="showScene('text2', this)">Text 2</button>
+          <button class="gallery-btn" onclick="showScene('text3', this)">Text 3</button>
+          <button class="gallery-btn" onclick="showScene('shape1', this)">Shape 1</button>
+          <button class="gallery-btn" onclick="showScene('shape2', this)">Shape 2</button>
+          <button class="gallery-btn" onclick="showScene('shape3', this)">Shape 3</button>
+        </div>
+
+        <!-- Scene info -->
+        <div class="gallery-scene-info" id="sceneInfo">
+          <code>ViewBench-Text</code> &nbsp; <strong>Q:</strong> <em>"Is the A point on the right or left of the B point?"</em> &nbsp; <strong>Answer:</strong> <em>"left"</em>
+        </div>
+
+        <!-- Image grid -->
+        <div class="gallery-grid" id="galleryGrid">
+          <!-- Populated by JS -->
+        </div>
+        <p style="text-align: center; font-size: 12px; color: var(--slate-400); margin-top: 12px;">
+          <span style="display:inline-block; width:10px; height:10px; border: 2px solid var(--green-500); border-radius:3px; margin-right:3px; vertical-align:middle;"></span> Our method &nbsp;
+          <span style="display:inline-block; width:10px; height:10px; border: 2px solid var(--slate-400); border-radius:3px; margin-right:3px; vertical-align:middle;"></span> Ground truth &nbsp;
+          <span style="color:var(--green-600); font-weight:700;">green</span> = correct &nbsp;
+          <span style="color:var(--red-500); font-weight:700;">red</span> = wrong
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Citation Section ===== -->
+  <section class="citation-section" id="citation">
+    <div class="container">
+      <div class="section-header fade-in">
+        <div class="section-label">Citation</div>
+        <h2 class="section-title">BibTeX</h2>
+      </div>
+      <div class="bibtex-box fade-in">
+        <button class="copy-btn" onclick="copyBibtex()" id="copyBtn">
+          <i class="fas fa-copy"></i> Copy
+        </button>
+        <pre id="bibtex">@inproceedings{lee2026tokenwarping,
+  title={Token Warping Helps MLLMs Look from Nearby Viewpoints},
+  author={Lee, Phillip Y. and Park, Chanho and Park, Mingue and Yoo, Seungwoo and Koo, Juil and Sung, Minhyuk},
+  booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year={2026}
+}</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Footer ===== -->
+  <footer class="footer">
+    <div class="container">
+      <p>
+        &copy; 2025 Token Warping &middot;
+        <a href="https://kaist.ac.kr" target="_blank">KAIST</a> &middot;
+        Website template inspired by <a href="https://matlat-proj.github.io" target="_blank">MatLat</a>
+      </p>
+    </div>
+  </footer>
+
+  <!-- ===== JavaScript ===== -->
+  <script>
+    // Navigation scroll effect
+    const nav = document.getElementById('nav');
+    window.addEventListener('scroll', () => {
+      nav.classList.toggle('scrolled', window.scrollY > 10);
+    });
+
+    // Fade-in on scroll
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+        }
+      });
+    }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+    document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+
+    // Pipeline step interaction
+    const pipelineSteps = [
+      {
+        icon: '\u{1f5bc}',
+        title: 'Source Image (I\u209B)',
+        desc: 'The input is a single RGB image captured from the source viewpoint, along with its camera pose P\u209B. This is the only visual observation available \u2014 the model must reason about the scene from a different viewpoint using only this image.'
+      },
+      {
+        icon: '\u{1f4cf}',
+        title: 'Depth Map',
+        desc: 'A depth map D is estimated from the source image using monocular depth prediction (e.g., Depth Anything v2). This provides the 3D geometric structure needed to compute how token positions shift under a viewpoint change. Even imperfect depth works well thanks to token robustness.'
+      },
+      {
+        icon: '\u{1f504}',
+        title: 'Token Warping (Backward Fetching)',
+        desc: 'The core step. We define a regular grid at the target viewpoint and map each grid position back to the source image plane using the depth map and relative camera pose. For each mapped position, we fetch the nearest source token. This backward approach ensures a dense, regular token layout at the target view.'
+      },
+      {
+        icon: '\u{1f9e9}',
+        title: 'Target-View Tokens',
+        desc: 'The result is a set of tokens arranged on a regular grid at the target viewpoint \u2014 exactly the format MLLMs expect. Unlike forward warping (which produces sparse, irregular tokens), backward warping preserves the dense grid structure that ViT-based models were trained on.'
+      },
+      {
+        icon: '\u{1f916}',
+        title: 'MLLM Spatial Reasoning',
+        desc: 'The warped tokens are fed directly into a ViT-based MLLM (e.g., Qwen2.5-VL) alongside the spatial reasoning question. The model processes these tokens as if they were a normal image from the target viewpoint, enabling accurate answers about spatial relationships and object descriptions.'
+      }
+    ];
+
+    let activePipelineIdx = -1;
+
+    function togglePipelineStep(idx, el) {
+      const panel = document.getElementById('pipelineDetail');
+      const allSteps = document.querySelectorAll('.pipeline-step');
+
+      // If clicking the same step, close
+      if (activePipelineIdx === idx) {
+        panel.classList.remove('open');
+        el.classList.remove('active');
+        activePipelineIdx = -1;
+        return;
+      }
+
+      // Update active states
+      allSteps.forEach(s => s.classList.remove('active'));
+      el.classList.add('active');
+      activePipelineIdx = idx;
+
+      // Update content
+      const step = pipelineSteps[idx];
+      document.getElementById('pipelineDetailIcon').textContent = step.icon;
+      document.getElementById('pipelineDetailTitle').textContent = step.title;
+      document.getElementById('pipelineDetailDesc').textContent = step.desc;
+
+      // Open panel
+      panel.classList.add('open');
+    }
+
+    // Copy BibTeX
+    function copyBibtex() {
+      const text = document.getElementById('bibtex').textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('copyBtn');
+        btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => {
+          btn.innerHTML = '<i class="fas fa-copy"></i> Copy';
+          btn.classList.remove('copied');
+        }, 2000);
+      });
+    }
+
+    // Qualitative Gallery Data
+    const sceneData = {
+      text1: {
+        task: 'ViewBench-Text',
+        question: 'Is the A point on the right or left of the B point?',
+        answer: 'left',
+        responses: {
+          source: 'left', pixel_forward: 'right', pixel_inverse: 'right',
+          patch_forward: 'right', patch_nearest: 'left', patch_adaptive: 'left',
+          genwarp: 'right', target: 'left'
+        }
+      },
+      text2: {
+        task: 'ViewBench-Text',
+        question: 'Is the A point on the right or left of the B point?',
+        answer: 'right',
+        responses: {
+          source: 'left', pixel_forward: 'left', pixel_inverse: 'left',
+          patch_forward: 'left', patch_nearest: 'right', patch_adaptive: 'right',
+          genwarp: 'left', target: 'right'
+        }
+      },
+      text3: {
+        task: 'ViewBench-Text',
+        question: 'Is the A point on the right or left of the B point?',
+        answer: 'right',
+        responses: {
+          source: 'right', pixel_forward: 'left', pixel_inverse: 'left',
+          patch_forward: 'left', patch_nearest: 'right', patch_adaptive: 'right',
+          genwarp: 'left', target: 'right'
+        }
+      },
+      shape1: {
+        task: 'ViewBench-Shape',
+        question: 'Is the star shape on the right or left of the triangle shape?',
+        answer: 'left',
+        responses: {
+          source: 'right', pixel_forward: 'right', pixel_inverse: 'right',
+          patch_forward: 'right', patch_nearest: 'right', patch_adaptive: 'left',
+          genwarp: 'right', target: 'left'
+        }
+      },
+      shape2: {
+        task: 'ViewBench-Shape',
+        question: 'Is the star shape on the right or left of the triangle shape?',
+        answer: 'left',
+        responses: {
+          source: 'right', pixel_forward: 'right', pixel_inverse: 'right',
+          patch_forward: 'right', patch_nearest: 'left', patch_adaptive: 'left',
+          genwarp: 'right', target: 'left'
+        }
+      },
+      shape3: {
+        task: 'ViewBench-Shape',
+        question: 'Is the star shape on the left or right of the triangle shape?',
+        answer: 'right',
+        responses: {
+          source: 'left', pixel_forward: 'left', pixel_inverse: 'left',
+          patch_forward: 'left', patch_nearest: 'left', patch_adaptive: 'right',
+          genwarp: 'left', target: 'right'
+        }
+      }
+    };
+
+    const methods = [
+      { key: 'source', file: 'source.jpg', label: 'Source (I_S)', type: 'gt' },
+      { key: 'pixel_forward', file: 'pixel_forward.png', label: 'Pixel Fwd', type: 'baseline' },
+      { key: 'pixel_inverse', file: 'pixel_inverse.png', label: 'Pixel Bwd', type: 'baseline' },
+      { key: 'patch_forward', file: 'patch_forward.png', label: 'Token Fwd', type: 'baseline' },
+      { key: 'patch_nearest', file: 'patch_nearest.png', label: 'Token Bwd-Nearest', type: 'ours' },
+      { key: 'patch_adaptive', file: 'patch_adaptive.png', label: 'Token Bwd-Adaptive', type: 'ours' },
+      { key: 'genwarp', file: 'genwarp.jpg', label: 'GenWarp (NVS)', type: 'baseline' },
+      { key: 'target', file: 'target.jpg', label: 'Target (I_T)', type: 'gt' },
+    ];
+
+    function showScene(sceneId, btn) {
+      const scene = sceneData[sceneId];
+      // Update buttons
+      document.querySelectorAll('.gallery-btn').forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      else document.querySelector('.gallery-btn').classList.add('active');
+      // Update info
+      document.getElementById('sceneInfo').innerHTML =
+        `<code>${scene.task}</code> &nbsp; <strong>Q:</strong> <em>"${scene.question}"</em> &nbsp; <strong>Answer:</strong> <em>"${scene.answer}"</em>`;
+      // Build grid
+      const grid = document.getElementById('galleryGrid');
+      grid.innerHTML = methods.map(m => {
+        const resp = scene.responses[m.key];
+        const isCorrect = resp === scene.answer;
+        const highlightClass = m.type === 'ours' ? 'highlight-good' : m.type === 'gt' ? 'highlight-gt' : '';
+        const respClass = isCorrect ? 'correct' : 'wrong';
+        return `
+          <div class="gallery-item ${highlightClass}">
+            <img src="static/figures/qualitative/${sceneId}/${m.file}" alt="${m.label}" loading="lazy">
+            <div class="gallery-item-label">${m.label}</div>
+            <div class="gallery-item-response">"<span class="${respClass}">${resp}</span>"</div>
+          </div>`;
+      }).join('');
+    }
+
+    // Initialize gallery on load
+    document.addEventListener('DOMContentLoaded', function() {
+      showScene('text1', document.querySelector('.gallery-btn'));
+    });
+  </script>
+</body>
+</html>

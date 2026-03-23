@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Forward / Backward Warping</title>
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f8fafc; --border: #e2e8f0;
+    --text: #1e293b; --dim: #64748b; --accent: #2563eb;
+    --fwd: #16a34a; --bwd: #dc2626; --c1: #2563eb; --c2: #7c3aed;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    display:flex;flex-direction:column;align-items:center;padding:10px 12px 6px}
+  .ctrl-row{display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap}
+  .ctrl-row+.ctrl-row{margin-top:10px}
+  .ctrl-stack{margin-bottom:10px}
+  .btn{font-family:inherit;font-weight:600;font-size:13px;padding:6px 16px;
+    border:1.5px solid var(--border);border-radius:7px;background:var(--panel);color:var(--text);cursor:pointer;transition:all .2s}
+  .btn:hover{border-color:var(--accent);color:var(--accent)}
+  .btn.af{border-color:var(--fwd);background:rgba(22,163,74,.08);color:var(--fwd)}
+  .btn.ab{border-color:var(--bwd);background:rgba(220,38,38,.08);color:var(--bwd)}
+  .sg{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:500;color:var(--dim)}
+  .fbtn{font-size:12px!important;padding:5px 14px!important}
+  .active-fetch{border-color:var(--bwd)!important;background:rgba(220,38,38,.08)!important;color:var(--bwd)!important}
+  input[type=range]{width:90px;accent-color:var(--c2);cursor:pointer}
+  /* Canvas layout: prefer all 3 in one row */
+  .viz{display:flex;gap:12px;justify-content:center;align-items:flex-start;flex-wrap:nowrap}
+  .col{display:flex;flex-direction:column;align-items:center;flex-shrink:0}
+  .lbl{font-size:12px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;margin-bottom:5px}
+  canvas{border:1.5px solid var(--border);border-radius:9px;background:var(--panel)}
+  .src-tgt{display:flex;gap:12px;align-items:flex-start;flex-shrink:0}
+  .acol{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding-top:24px;flex-shrink:0}
+  .albl{font-size:11px;font-weight:500;color:var(--dim)}
+  .legend{margin-top:6px;display:flex;gap:16px;flex-wrap:wrap;justify-content:center}
+  .li{display:flex;align-items:center;gap:4px;font-size:11px;font-weight:500;color:var(--dim)}
+  .ld{width:8px;height:8px;border-radius:50%}
+  /* Narrow: stack scene above source+target row */
+  @media (max-width: 860px) {
+    .viz{flex-wrap:wrap}
+    .src-tgt{flex-shrink:0}
+  }
+</style>
+</head>
+<body>
+<!-- Controls: 3 rows -->
+<div class="ctrl-stack">
+  <div class="ctrl-row">
+    <button class="btn af" id="bF" onclick="setMode('fwd')">Forward Warp</button>
+    <button class="btn" id="bB" onclick="setMode('bwd')">Backward Warp</button>
+  </div>
+  <div class="ctrl-row">
+    <div class="sg"><span>cam&#8322; shift</span>
+      <input type="range" id="sS" min="-3" max="3" step=".2" value="1.8" oninput="render()"></div>
+    <div class="sg"><span>cam&#8322; yaw</span>
+      <input type="range" id="sY" min="-30" max="30" step="1" value="-12" oninput="render()"></div>
+  </div>
+  <div class="ctrl-row" id="fG" style="opacity:.3;pointer-events:none">
+    <span style="font-size:12px;font-weight:500;color:var(--dim)">Fetching</span>
+    <button class="btn fbtn active-fetch" id="fNearest" onclick="setFetch('nearest')">Nearest</button>
+    <button class="btn fbtn" id="fAdaptive" onclick="setFetch('adaptive')">Adaptive</button>
+  </div>
+</div>
+
+<!-- Visualization: scene + source/target -->
+<div class="viz">
+  <div class="col">
+    <div class="lbl" style="color:var(--accent)">3D Scene (top-down)</div>
+    <canvas id="cS" width="260" height="260"></canvas>
+  </div>
+  <div class="src-tgt">
+    <div class="col">
+      <div class="lbl" style="color:var(--c1)">Source (cam&#8321;)</div>
+      <canvas id="c1" width="220" height="220"></canvas>
+    </div>
+    <div class="acol">
+      <svg width="28" height="16" viewBox="0 0 28 16">
+        <path d="M2 8h20l-4.5-4m4.5 4l-4.5 4" stroke="#16a34a" stroke-width="2" fill="none" stroke-linecap="round" id="aF"/>
+      </svg>
+      <span class="albl" id="aT">warp&#8594;</span>
+      <svg width="28" height="16" viewBox="0 0 28 16">
+        <path d="M26 8H4l4.5-4M4 8l4.5 4" stroke="#dc2626" stroke-width="2" fill="none" stroke-linecap="round" id="aB" style="opacity:.2"/>
+      </svg>
+    </div>
+    <div class="col">
+      <div class="lbl" style="color:var(--c2)">Target (cam&#8322;)</div>
+      <canvas id="c2" width="220" height="220"></canvas>
+    </div>
+  </div>
+</div>
+<div class="legend">
+  <div class="li"><div class="ld" style="background:var(--c1)"></div>Cam 1</div>
+  <div class="li"><div class="ld" style="background:var(--c2)"></div>Cam 2</div>
+  <div class="li"><div class="ld" style="border:1.5px dashed var(--dim)"></div>Hole</div>
+</div>
+
+<script>
+// ===================== CONSTANTS =====================
+const G = 5;
+const S = 220;
+const SC = 260;
+const PAD = 26;
+const IMG_H = 1.0;
+const PIX = (S - PAD * 2) / (2 * IMG_H);
+const FOCAL = 3;
+
+let mode = 'fwd';
+let fetchMode = 'nearest';
+
+function setFetch(fm) {
+  fetchMode = fm;
+  document.getElementById('fNearest').className = fm === 'nearest' ? 'btn fbtn active-fetch' : 'btn fbtn';
+  document.getElementById('fAdaptive').className = fm === 'adaptive' ? 'btn fbtn active-fetch' : 'btn fbtn';
+  render();
+}
+
+// ===================== COLORS =====================
+const COL_HSL = [], COL_RGB = [];
+for (let i = 0; i < G * G; i++) {
+  const h = (i * 360 / (G * G)) % 360;
+  const s = 75;
+  const l = (i % 2 === 0) ? 45 : 58;
+  COL_HSL.push(`hsl(${h},${s}%,${l}%)`);
+  const a = s / 100 * Math.min(l / 100, 1 - l / 100);
+  const fn = n => { const k = (n + h / 30) % 12; return l / 100 - a * Math.max(Math.min(k - 3, 9 - k, 1), -1); };
+  COL_RGB.push([Math.round(fn(0) * 255), Math.round(fn(8) * 255), Math.round(fn(4) * 255)]);
+}
+function rgbStr(r, g, b) { return `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`; }
+
+// ===================== 3D SCENE =====================
+function mkPts() {
+  const p = [];
+  for (let r = 0; r < G; r++)
+    for (let c = 0; c < G; c++)
+      p.push({ x: -2 + c, y: -2 + r, z: 6 });
+  return p;
+}
+
+// ===================== CAMERA =====================
+function mkCam(pos, yawDeg) {
+  const y = yawDeg * Math.PI / 180;
+  return { p: pos, yaw: y, f: FOCAL, cy: Math.cos(y), sy: Math.sin(y) };
+}
+
+function proj(cam, pt) {
+  const dx = pt.x - cam.p[0], dy = pt.y - cam.p[1], dz = pt.z - cam.p[2];
+  const camX =  dx * cam.cy - dz * cam.sy;
+  const camZ =  dx * cam.sy + dz * cam.cy;
+  const camY =  dy;
+  if (camZ <= 0.001) return null;
+  return { u: cam.f * camX / camZ, v: cam.f * camY / camZ, cz: camZ };
+}
+
+function vis(p) {
+  return p !== null && Math.abs(p.u) <= IMG_H;
+}
+
+function unproj(cam, u, v, pz) {
+  const lx = u / cam.f, ly = v / cam.f, lz = 1;
+  const wx =  lx * cam.cy + lz * cam.sy;
+  const wz = -lx * cam.sy + lz * cam.cy;
+  const wy =  ly;
+  if (Math.abs(wz) < 1e-8) return null;
+  const t = (pz - cam.p[2]) / wz;
+  if (t <= 0) return null;
+  return { x: cam.p[0] + t * wx, y: cam.p[1] + t * wy, z: pz };
+}
+
+function uv2px(u, v) {
+  return { px: S / 2 + u * PIX, py: S / 2 + v * PIX };
+}
+
+// ===================== FETCH METHODS =====================
+function fetchNearest(sc, sr) {
+  const ci = Math.max(0, Math.min(G - 1, Math.round(sc)));
+  const ri = Math.max(0, Math.min(G - 1, Math.round(sr)));
+  return COL_HSL[ri * G + ci];
+}
+
+function fetchBilinear(sc, sr) {
+  const c0 = Math.floor(sc), r0 = Math.floor(sr);
+  const fc = sc - c0, fr = sr - r0;
+  const corners = [
+    [r0, c0, (1 - fr) * (1 - fc)],
+    [r0, c0 + 1, (1 - fr) * fc],
+    [r0 + 1, c0, fr * (1 - fc)],
+    [r0 + 1, c0 + 1, fr * fc]
+  ];
+  let R = 0, Gv = 0, B = 0, w = 0;
+  for (const [rr, cc, ww] of corners) {
+    if (rr >= 0 && rr < G && cc >= 0 && cc < G && ww > 0) {
+      const rgb = COL_RGB[rr * G + cc];
+      R += rgb[0] * ww; Gv += rgb[1] * ww; B += rgb[2] * ww; w += ww;
+    }
+  }
+  return w > 0 ? rgbStr(R / w, Gv / w, B / w) : null;
+}
+
+// ===================== MODE =====================
+function setMode(m) {
+  mode = m;
+  document.getElementById('bF').className = m === 'fwd' ? 'btn af' : 'btn';
+  document.getElementById('bB').className = m === 'bwd' ? 'btn ab' : 'btn';
+  document.getElementById('aF').style.opacity = m === 'fwd' ? 1 : 0.2;
+  document.getElementById('aB').style.opacity = m === 'bwd' ? 1 : 0.2;
+  document.getElementById('aT').textContent = m === 'fwd' ? 'warp\u2192' : '\u2190warp';
+  const fg = document.getElementById('fG');
+  fg.style.opacity = m === 'bwd' ? '1' : '.3';
+  fg.style.pointerEvents = m === 'bwd' ? 'auto' : 'none';
+  render();
+}
+
+// ===================== RENDER =====================
+function render() {
+  const shift = +document.getElementById('sS').value;
+  const yaw = +document.getElementById('sY').value;
+  const cam1 = mkCam([0, 0, 0], 0);
+  const cam2 = mkCam([shift, 0, 0], yaw);
+  const pts = mkPts();
+  const pr1 = pts.map(p => proj(cam1, p));
+  const pr2 = pts.map(p => proj(cam2, p));
+
+  drawScene(cam1, cam2, pts);
+  drawSource(pr1);
+
+  const tgt = document.getElementById('c2').getContext('2d');
+  tgt.clearRect(0, 0, S, S);
+  drawImageBorder(tgt);
+  if (mode === 'fwd') renderForward(pr1, pr2, tgt);
+  else renderBackward(cam1, cam2, tgt);
+}
+
+function drawImageBorder(ctx) {
+  const l = uv2px(-IMG_H, -IMG_H), r = uv2px(IMG_H, IMG_H);
+  ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 1;
+  ctx.strokeRect(l.px, l.py, r.px - l.px, r.py - l.py);
+}
+
+// ===================== SCENE TOP-DOWN =====================
+function drawScene(cam1, cam2, pts) {
+  const ctx = document.getElementById('cS').getContext('2d');
+  ctx.clearRect(0, 0, SC, SC);
+
+  const cx = SC / 2, cy = SC / 2;
+  const scale = 30;
+  const w2c = (wx, wz) => ({ sx: cx + wx * scale, sy: cy + (wz - 3) * scale });
+
+  // Scene plane background
+  const pTL = w2c(-2.5, 5.5), pBR = w2c(2.5, 6.5);
+  ctx.fillStyle = 'rgba(37,99,235,.05)';
+  ctx.fillRect(pTL.sx, pTL.sy, pBR.sx - pTL.sx, pBR.sy - pTL.sy);
+  ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
+  ctx.strokeRect(pTL.sx, pTL.sy, pBR.sx - pTL.sx, pBR.sy - pTL.sy);
+
+  // Points
+  pts.forEach((p, i) => {
+    const { sx, sy } = w2c(p.x, p.z);
+    ctx.beginPath(); ctx.arc(sx, sy, 3, 0, Math.PI * 2);
+    ctx.fillStyle = COL_HSL[i]; ctx.fill();
+  });
+
+  drawCamTopDown(ctx, cam1, '#2563eb', 'cam\u2081', w2c);
+  drawCamTopDown(ctx, cam2, '#7c3aed', 'cam\u2082', w2c);
+
+  ctx.fillStyle = '#94a3b8'; ctx.font = '9px -apple-system, sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('scene plane (z=6)', w2c(0, 6).sx, w2c(0, 6).sy + 22);
+  ctx.fillStyle = '#94a3b8'; ctx.font = '9px -apple-system, sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('x\u2192', SC - 20, cy + 4);
+  ctx.fillText('z\u2193', cx + 4, SC - 8);
+}
+
+function drawCamTopDown(ctx, cam, color, label, w2c) {
+  const { sx: ox, sy: oy } = w2c(cam.p[0], cam.p[2]);
+
+  const lookX = Math.sin(cam.yaw);
+  const lookZ = Math.cos(cam.yaw);
+  const halfFov = Math.atan(IMG_H / cam.f);
+  const cosF = Math.cos(halfFov), sinF = Math.sin(halfFov);
+  const lDirX = lookX * cosF - lookZ * sinF;
+  const lDirZ = lookX * sinF + lookZ * cosF;
+  const rDirX = lookX * cosF + lookZ * sinF;
+  const rDirZ = -lookX * sinF + lookZ * cosF;
+
+  const rayLen = 20;
+  const lEnd = w2c(cam.p[0] + lDirX * rayLen, cam.p[2] + lDirZ * rayLen);
+  const rEnd = w2c(cam.p[0] + rDirX * rayLen, cam.p[2] + rDirZ * rayLen);
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, 0, SC, SC); ctx.clip();
+  ctx.globalAlpha = 0.08; ctx.fillStyle = color;
+  ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(lEnd.sx, lEnd.sy); ctx.lineTo(rEnd.sx, rEnd.sy); ctx.closePath(); ctx.fill();
+  ctx.globalAlpha = 0.35; ctx.strokeStyle = color; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(lEnd.sx, lEnd.sy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(rEnd.sx, rEnd.sy); ctx.stroke();
+  ctx.restore();
+
+  ctx.beginPath(); ctx.arc(ox, oy, 5, 0, Math.PI * 2);
+  ctx.fillStyle = color; ctx.fill();
+
+  const lookEnd = w2c(cam.p[0] + lookX * 0.5, cam.p[2] + lookZ * 0.5);
+  ctx.strokeStyle = color; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(lookEnd.sx, lookEnd.sy); ctx.stroke();
+
+  ctx.fillStyle = color; ctx.font = '600 9px -apple-system, sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText(label, ox, oy - 10);
+}
+
+// ===================== SOURCE IMAGE =====================
+function drawSource(pr1) {
+  const ctx = document.getElementById('c1').getContext('2d');
+  ctx.clearRect(0, 0, S, S);
+  drawImageBorder(ctx);
+  pr1.forEach((p, i) => {
+    if (!vis(p)) return;
+    const { px, py } = uv2px(p.u, p.v);
+    if (px < PAD - 8 || px > S - PAD + 8 || py < PAD - 8 || py > S - PAD + 8) return;
+    ctx.beginPath(); ctx.arc(px, py, 7, 0, Math.PI * 2);
+    ctx.fillStyle = COL_HSL[i]; ctx.fill();
+  });
+}
+
+// ===================== FORWARD WARP =====================
+function renderForward(pr1, pr2, tgt) {
+  const landed = [];
+  for (let i = 0; i < G * G; i++) {
+    if (!vis(pr1[i])) continue;
+    if (!vis(pr2[i])) continue;
+    const { px, py } = uv2px(pr2[i].u, pr2[i].v);
+    if (px < PAD - 8 || px > S - PAD + 8 || py < PAD - 8 || py > S - PAD + 8) continue;
+    landed.push({ px, py, i });
+  }
+
+  const overlapIdx = new Set();
+  for (let a = 0; a < landed.length; a++) {
+    for (let b = a + 1; b < landed.length; b++) {
+      const dx = landed[a].px - landed[b].px, dy = landed[a].py - landed[b].py;
+      if (Math.sqrt(dx * dx + dy * dy) < 14) { overlapIdx.add(a); overlapIdx.add(b); }
+    }
+  }
+
+  landed.forEach((l, li) => {
+    tgt.beginPath(); tgt.arc(l.px, l.py, 7, 0, Math.PI * 2);
+    tgt.fillStyle = COL_HSL[l.i]; tgt.fill();
+    if (overlapIdx.has(li)) {
+      tgt.beginPath(); tgt.arc(l.px, l.py, 10, 0, Math.PI * 2);
+      tgt.strokeStyle = '#d97706'; tgt.lineWidth = 2; tgt.stroke();
+    }
+  });
+
+  // Holes
+  const landedSet = new Set(landed.map(l => l.i));
+  const pts = mkPts();
+  const pr2all = pts.map(p => proj(mkCam([+document.getElementById('sS').value, 0, 0], +document.getElementById('sY').value), p));
+  for (let i = 0; i < G * G; i++) {
+    if (!vis(pr2all[i])) continue;
+    if (landedSet.has(i)) continue;
+    const { px, py } = uv2px(pr2all[i].u, pr2all[i].v);
+    if (px < PAD - 8 || px > S - PAD + 8 || py < PAD - 8 || py > S - PAD + 8) continue;
+    tgt.beginPath(); tgt.arc(px, py, 6, 0, Math.PI * 2);
+    tgt.setLineDash([2.5, 2.5]); tgt.strokeStyle = '#94a3b8'; tgt.lineWidth = 1.5; tgt.stroke();
+    tgt.setLineDash([]);
+  }
+}
+
+// ===================== BACKWARD WARP =====================
+function renderBackward(cam1, cam2, tgt) {
+  const fm = fetchMode;
+  const pts = mkPts();
+  const tgtStep = 2 * IMG_H / (G - 1);
+
+  for (let tr = 0; tr < G; tr++) {
+    for (let tc = 0; tc < G; tc++) {
+      const tu = -IMG_H + tgtStep * tc;
+      const tv = -IMG_H + tgtStep * tr;
+
+      if (Math.abs(tu) > IMG_H) continue;
+
+      const { px: tpx, py: tpy } = uv2px(tu, tv);
+      if (tpx < PAD - 8 || tpx > S - PAD + 8 || tpy < PAD - 8 || tpy > S - PAD + 8) continue;
+
+      const hit = unproj(cam2, tu, tv, 6);
+      if (!hit) {
+        tgt.beginPath(); tgt.arc(tpx, tpy, 6, 0, Math.PI * 2);
+        tgt.setLineDash([2, 2]); tgt.strokeStyle = '#94a3b8'; tgt.lineWidth = 1; tgt.stroke();
+        tgt.setLineDash([]);
+        continue;
+      }
+
+      const sp = proj(cam1, hit);
+      if (!sp || !vis(sp)) {
+        tgt.beginPath(); tgt.arc(tpx, tpy, 6, 0, Math.PI * 2);
+        tgt.fillStyle = 'rgba(148,163,184,0.2)'; tgt.fill();
+        continue;
+      }
+
+      const sc = hit.x + 2;
+      const sr = hit.y + 2;
+
+      if (sc < -0.5 || sc > G - 0.5 || sr < -0.5 || sr > G - 0.5) {
+        tgt.beginPath(); tgt.arc(tpx, tpy, 6, 0, Math.PI * 2);
+        tgt.fillStyle = 'rgba(148,163,184,0.2)'; tgt.fill();
+        continue;
+      }
+
+      let color;
+      if (fm === 'nearest') {
+        color = fetchNearest(sc, sr);
+      } else {
+        color = fetchBilinear(sc, sr);
+        if (!color) color = fetchNearest(sc, sr);
+      }
+
+      tgt.beginPath(); tgt.arc(tpx, tpy, 7, 0, Math.PI * 2);
+      tgt.fillStyle = color; tgt.fill();
+
+      const src = document.getElementById('c1').getContext('2d');
+      const { px: spx, py: spy } = uv2px(sp.u, sp.v);
+      if (spx >= PAD - 4 && spx <= S - PAD + 4 && spy >= PAD - 4 && spy <= S - PAD + 4) {
+        src.save();
+        src.globalAlpha = 0.4;
+        src.beginPath(); src.arc(spx, spy, 3, 0, Math.PI * 2);
+        src.strokeStyle = '#dc2626'; src.lineWidth = 1.5; src.stroke();
+        src.restore();
+      }
+    }
+  }
+}
+
+// ===================== INIT =====================
+setMode('fwd');
+</script>
+</body>
+</html>
