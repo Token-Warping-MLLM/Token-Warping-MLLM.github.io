@@ -541,8 +541,12 @@
       border-color: var(--blue-200);
       background: var(--blue-50);
     }
+    .strategy-card.child {
+      border-color: var(--blue-200);
+      border-left: 3px solid var(--blue-400);
+    }
     .strategy-card .strategy-label {
-      font-size: 12px;
+      font-size: 15px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.06em;
@@ -550,6 +554,7 @@
     }
     .strategy-card .strategy-label.fwd { color: var(--slate-400); }
     .strategy-card .strategy-label.bwd { color: var(--blue-600); }
+    .strategy-card .strategy-label.fetch { color: var(--blue-700); }
     .strategy-card h4 {
       font-size: 16px;
       font-weight: 700;
@@ -571,6 +576,16 @@
       padding: 2px 8px;
       border-radius: 4px;
       margin-top: 10px;
+    }
+    .strategy-card .parent-tag {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      background: var(--blue-100);
+      color: var(--blue-600);
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-bottom: 10px;
     }
 
     /* ===== Pipeline Diagram ===== */
@@ -1073,27 +1088,27 @@
         <span class="highlight">Token Warping</span> Helps MLLMs Look from Nearby Viewpoints
       </h1>
       <div class="authors">
-        <span>Phillip Y. Lee<span class="equal-contrib">*</span></span>
-        <span>Chanho Park<span class="equal-contrib">*</span></span>
-        <span>Mingue Park</span>
-        <span>Seungwoo Yoo</span>
-        <span>Juil Koo</span>
-        <span>Minhyuk Sung</span>
+        <span><a href="https://phillipinseoul.github.io" target="_blank">Phillip Y. Lee</a><span class="equal-contrib">*</span></span>
+        <span><a href="https://charlieppark.kr" target="_blank">Chanho Park</a><span class="equal-contrib">*</span></span>
+        <span><a href="https://uygnim99.github.io" target="_blank">Mingue Park</a></span>
+        <span><a href="https://dvelopery0115.github.io" target="_blank">Seungwoo Yoo</a></span>
+        <span><a href="https://63days.github.io" target="_blank">Juil Koo</a></span>
+        <span><a href="https://mhsung.github.io" target="_blank">Minhyuk Sung</a></span>
         <span>(* equal contributions)</span>
       </div>
       <div class="affiliation">KAIST</div>
       <div class="hero-links">
-        <a href="#" class="hero-link primary">
+        <a href="Token_Warping_Helps_MLLMs.pdf" class="hero-link primary" target="_blank">
           <i class="fas fa-file-pdf"></i> Paper
         </a>
-        <a href="#" class="hero-link secondary">
+        <a href="#" class="hero-link secondary" title="Coming soon" style="opacity: 0.5; cursor: default;" onclick="return false;">
           <i class="fas fa-book"></i> arXiv
         </a>
-        <a href="#" class="hero-link secondary">
-          <i class="fab fa-github"></i> Code
+        <a href="#" class="hero-link secondary" title="Code will be released soon" style="opacity: 0.5; cursor: default;" onclick="return false;">
+          <i class="fab fa-github"></i> Code (coming soon)
         </a>
-        <a href="#viewbench" class="hero-link secondary">
-          <i class="fas fa-chart-bar"></i> ViewBench
+        <a href="#" class="hero-link secondary" title="Benchmark will be released soon" style="opacity: 0.5; cursor: default;" onclick="return false;">
+          <i class="fas fa-chart-bar"></i> ViewBench (coming soon)
         </a>
       </div>
 
@@ -1126,7 +1141,7 @@
         <div class="section-label">Abstract</div>
       </div>
       <div class="abstract-content fade-in">
-        Can warping tokens, rather than pixels, help multimodal large language models (MLLMs) understand how a scene appears from nearby viewpoints? While MLLMs perform well on a single image reasoning, they remain fragile to viewpoint changes because pixel-level warping is highly sensitive to small depth errors and often introduces geometric distortions. Drawing on theories of mental imagery that posit part-level structural representations as the basis for human perspective transformation, we examine whether image tokens in ViT-based MLLMs serve as an effective substrate for viewpoint warping. We compare two token-level transformation strategies, forward and backward warping, and find that <em>backward token fetching</em>, which selects tokens at target-view grid locations and retrieves their counterparts from the source view, achieves greater stability and better preserves semantic coherence under viewpoint shifts. Experiments on our proposed <strong>ViewBench</strong> benchmark demonstrate that token-level warping enables MLLMs to reason reliably from nearby viewpoints, while consistently outperforming all baselines, including pixel-warping approaches, MLLMs fine-tuned for spatial reasoning, and a generative warping method.
+        Can warping tokens, rather than pixels, help multimodal large language models (MLLMs) understand how a scene appears from a nearby viewpoint? While MLLMs perform well on visual reasoning, they remain fragile to viewpoint changes, as pixel-wise warping is highly sensitive to small depth errors and often introduces geometric distortions. Drawing on theories of mental imagery that posit part-level structural representations as the basis for human perspective transformation, we examine whether image tokens in ViT-based MLLMs serve as an effective substrate for viewpoint changes. We compare forward and backward warping, finding that backward token warping, which defines a dense grid on the target view and retrieves a corresponding source-view token for each grid point, achieves greater stability and better preserves semantic coherence under viewpoint shifts. Experiments on our proposed <strong>ViewBench</strong> benchmark demonstrate that token-level warping enables MLLMs to reason reliably from nearby viewpoints, consistently outperforming all baselines including pixel-wise warping approaches, spatially fine-tuned MLLMs, and a generative warping method.
       </div>
     </div>
   </section>
@@ -1144,20 +1159,20 @@
         <div class="insight-text">
           <h3>Tokens Are Robust Perceptual Atoms</h3>
           <p>
-            Modern ViT-based MLLMs represent images as a set of <strong>image tokens</strong> &mdash; localized, semantically meaningful units. Inspired by theories of <em>mental imagery</em>, we hypothesize that tokens provide the right granularity for viewpoint transformation.
+            Modern ViT-based MLLMs represent images as a sequence of <strong>image tokens</strong> &mdash; localized, semantically meaningful units that function as <em>perceptual atoms</em>. Inspired by theories of <em>mental imagery</em>, we hypothesize that tokens provide the right part-level granularity for viewpoint transformation.
           </p>
           <p>
-            Object-level representations are too coarse, losing spatial detail. Pixel-level representations are too fine-grained and highly sensitive to even small depth or geometric noise. <strong>Image tokens lie between these extremes</strong>, retaining rich visual detail while remaining robust to local perturbations.
+            Object-level representations are too coarse, sacrificing important spatial and appearance details. Pixel-level representations are too fine-grained and sensitive to even small depth or geometric noise. <strong>Image tokens lie between these extremes</strong>, retaining rich visual detail while remaining robust to local perturbations.
           </p>
           <div class="insight-callout">
-            <p><i class="fas fa-lightbulb" style="margin-right: 6px;"></i> Even with perturbations of up to 17.5 pixels, MLLM accuracy degrades only mildly &mdash; demonstrating that tokens naturally tolerate the noise introduced by depth-based warping.</p>
+            <p><i class="fas fa-lightbulb" style="margin-right: 6px;"></i> The model exhibits only mild degradation in the large-perturbation regime (19&ndash;20 pixels) &mdash; token representations in MLLMs are highly robust to noise in the image positions from which tokens are fetched.</p>
           </div>
         </div>
 
         <!-- Noise Sensitivity Chart (Fig 5) -->
         <div class="chart-container">
           <div class="chart-title">Fetching Position Noise Sensitivity (Fig. 5)</div>
-          <img src="static/figures/noise_sensitivity.png" alt="Token representations in MLLMs are highly robust to positional noise. Accuracy remains stable even with perturbations up to 17.5 pixels." style="width: 100%; border-radius: 8px;">
+          <img src="static/figures/noise_sensitivity.png" alt="Token representations in MLLMs are highly robust to positional noise. Accuracy remains stable even with perturbations approaching 19-20 pixels, exhibiting only mild degradation." style="width: 100%; border-radius: 8px;">
         </div>
       </div>
     </div>
@@ -1251,7 +1266,7 @@
       <div class="method-detail fade-in">
         <h3>Warping Direction &amp; Fetching Strategy</h3>
         <p>
-          We explore two axes of design: the <strong>warping direction</strong> (forward vs. backward) and the <strong>token fetching strategy</strong> (nearest vs. adaptive). Backward warping with nearest fetching emerges as the practical best choice.
+          We explore two axes of design: the <strong>warping direction</strong> (forward vs. backward) and the <strong>token fetching strategy</strong> (nearest vs. adaptive).
         </p>
 
         <div class="strategy-grid">
@@ -1266,14 +1281,14 @@
             <p>Defines a regular grid at the target view and maps each position back to the source. Produces dense, regularly spaced tokens that MLLMs expect.</p>
             <div class="rec-badge">Best Performance</div>
           </div>
-          <div class="strategy-card">
-            <div class="strategy-label fwd">Nearest Fetching</div>
-            <h4>Nearest Fetching</h4>
+          <div class="strategy-card child">
+            <div class="parent-tag">Backward &rsaquo; Fetching</div>
+            <div class="strategy-label fetch">Nearest Fetching</div>
             <p>Finds the closest existing token in the source grid for each mapped coordinate. Simple and efficient &mdash; performs comparably to adaptive fetching.</p>
           </div>
-          <div class="strategy-card">
-            <div class="strategy-label fwd">Adaptive Fetching</div>
-            <h4>Adaptive Fetching</h4>
+          <div class="strategy-card child">
+            <div class="parent-tag">Backward &rsaquo; Fetching</div>
+            <div class="strategy-label fetch">Adaptive Fetching</div>
             <p>Dynamically crops a new patch centered at the mapped coordinate for re-encoding. More flexible but requires additional computation.</p>
           </div>
         </div>
@@ -1348,17 +1363,17 @@
       <!-- Key Stats -->
       <div class="result-stats fade-in">
         <div class="stat-card">
-          <div class="stat-number">+14.6%p</div>
+          <div class="stat-number">+14.1%p</div>
           <div class="stat-label">vs. Specialist MLLMs</div>
           <div class="stat-detail">ViewBench-Text (5-15 overlap)</div>
         </div>
         <div class="stat-card">
-          <div class="stat-number">+12.4%p</div>
+          <div class="stat-number">+10.3%p</div>
           <div class="stat-label">vs. Pixel Warping</div>
           <div class="stat-detail">ViewBench-Shape (5-15 overlap)</div>
         </div>
         <div class="stat-card">
-          <div class="stat-number">+1.8</div>
+          <div class="stat-number">+0.65</div>
           <div class="stat-label">vs. GenWarp (NVS)</div>
           <div class="stat-detail">ViewBench-Object (5-15 score)</div>
         </div>
@@ -1425,15 +1440,15 @@
             </tr>
             <tr>
               <td class="left">Forward</td>
-              <td>70.85</td><td>73.10</td><td>67.43</td>
+              <td>70.85</td><td>73.60</td><td>62.86</td>
               <td>56.20</td><td>56.79</td><td>60.49</td>
-              <td>3.22</td><td>3.87</td><td>4.54</td>
+              <td>3.22</td><td>4.04</td><td>4.78</td>
             </tr>
             <tr>
               <td class="left">Backward</td>
-              <td>71.86</td><td>74.62</td><td>68.57</td>
+              <td>71.86</td><td>75.63</td><td>68.57</td>
               <td>62.40</td><td>58.02</td><td>66.67</td>
-              <td>4.45</td><td>5.48</td><td>5.89</td>
+              <td>4.53</td><td>5.52</td><td>5.94</td>
             </tr>
             <!-- Separator: Token Warping -->
             <tr class="separator">
@@ -1441,27 +1456,27 @@
             </tr>
             <tr>
               <td class="left">Forward</td>
-              <td>60.30</td><td>54.86</td><td>60.57</td>
-              <td>56.98</td><td>55.14</td><td>53.09</td>
-              <td>4.20</td><td>4.37</td><td>3.78</td>
+              <td>60.30</td><td>64.47</td><td>54.86</td>
+              <td>55.04</td><td>55.14</td><td>53.09</td>
+              <td>4.09</td><td>4.27</td><td>4.07</td>
             </tr>
             <tr class="our-best">
               <td class="left">Backward-Nearest <span class="method-tag ours">Ours</span></td>
-              <td class="second-best">74.87</td><td class="best">81.73</td><td class="second-best">76.00</td>
-              <td class="second-best">67.44</td><td class="second-best">63.95</td><td class="second-best">73.25</td>
-              <td class="second-best">4.86</td><td class="second-best">5.57</td><td class="second-best">5.97</td>
+              <td class="second-best">74.87</td><td class="best">80.71</td><td class="second-best">74.86</td>
+              <td class="best">67.44</td><td class="second-best">62.96</td><td class="second-best">73.25</td>
+              <td class="second-best">4.80</td><td>5.39</td><td class="best">6.19</td>
             </tr>
             <tr class="our-best">
               <td class="left">Backward-Adaptive <span class="method-tag ours">Ours</span></td>
-              <td class="best">77.89</td><td class="second-best">80.71</td><td class="best">78.86</td>
-              <td class="best">67.44</td><td class="best">66.28</td><td class="best">75.72</td>
-              <td class="best">5.18</td><td class="best">5.76</td><td class="best">6.14</td>
+              <td class="best">77.89</td><td class="second-best">79.70</td><td class="best">78.86</td>
+              <td class="best">67.44</td><td class="best">66.26</td><td class="best">75.72</td>
+              <td class="best">4.97</td><td class="best">5.76</td><td class="second-best">6.11</td>
             </tr>
           </tbody>
         </table>
       </div>
       <p style="text-align: center; font-size: 13px; color: var(--slate-400); margin-top: 8px;">
-        <strong style="color: var(--blue-700);">Bold</strong> = best, <span style="text-decoration: underline; color: var(--blue-600);">underline</span> = second best. View overlap ranges indicate difficulty (lower = harder). Evaluated with Qwen2.5-VL 14B.
+        <strong style="color: var(--blue-700);">Bold</strong> = best, <span style="text-decoration: underline; color: var(--blue-600);">underline</span> = second best. View overlap ranges indicate difficulty (lower = harder). All results use GT depth. Evaluated with Qwen2.5-VL 14B.
       </p>
 
       <!-- Qualitative Results -->
@@ -1470,6 +1485,7 @@
         <p>
           Visual comparisons of warped results across methods. Token warping (our backward variants) preserves scene structure and enables correct spatial reasoning, while pixel-wise warping introduces severe artifacts and generative approaches may hallucinate content.
           The pixelated images in the token warping columns are displayed solely for visualization; the framework operates entirely on token embeddings.
+          Below each image we show the response from Qwen2.5-VL when given the corresponding warped result.
         </p>
 
         <!-- Scene selector -->
@@ -1501,6 +1517,19 @@
     </div>
   </section>
 
+  <!-- ===== Acknowledgements ===== -->
+  <section style="padding: 48px 0 0;">
+    <div class="container">
+      <div class="section-header fade-in">
+        <div class="section-label">Acknowledgements</div>
+      </div>
+      <p class="fade-in" style="font-size: 14px; color: var(--slate-500); text-align: center; max-width: 780px; margin: 0 auto; line-height: 1.7;">
+        We thank <strong>Daehyeon Choi</strong> and <strong>Sangwoo Youn</strong> for their valuable discussions.
+        This work was supported by the National Research Foundation of Korea (NRF), the Institute of Information &amp; Communications Technology Planning &amp; Evaluation (IITP), the Industrial Technology Innovation Program, and the National Supercomputing Center, funded by the Korean government (MSIT/MOTIE).
+      </p>
+    </div>
+  </section>
+
   <!-- ===== Citation Section ===== -->
   <section class="citation-section" id="citation">
     <div class="container">
@@ -1526,7 +1555,7 @@
   <footer class="footer">
     <div class="container">
       <p>
-        &copy; 2025 Token Warping &middot;
+        &copy; 2026 Token Warping &middot;
         <a href="https://kaist.ac.kr" target="_blank">KAIST</a> &middot;
         Website template inspired by <a href="https://matlat-proj.github.io" target="_blank">MatLat</a>
       </p>
@@ -1673,7 +1702,7 @@
         responses: {
           source: 'right', pixel_forward: 'right', pixel_inverse: 'right',
           patch_forward: 'right', patch_nearest: 'left', patch_adaptive: 'left',
-          genwarp: 'right', target: 'left'
+          genwarp: 'none', target: 'left'
         }
       },
       shape3: {

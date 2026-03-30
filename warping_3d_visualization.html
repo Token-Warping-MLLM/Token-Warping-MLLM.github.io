@@ -12,7 +12,7 @@
   }
   *{margin:0;padding:0;box-sizing:border-box}
   body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-    display:flex;flex-direction:column;align-items:center;padding:10px 12px 6px}
+    display:flex;flex-direction:column;align-items:center;padding:10px 12px 6px;position:relative}
   .ctrl-row{display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap}
   .ctrl-row+.ctrl-row{margin-top:10px}
   .ctrl-stack{margin-bottom:10px}
@@ -33,6 +33,12 @@
   .src-tgt{display:flex;gap:12px;align-items:flex-start;flex-shrink:0}
   .acol{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding-top:24px;flex-shrink:0}
   .albl{font-size:11px;font-weight:500;color:var(--dim)}
+  .grid-sel{position:absolute;top:10px;right:12px;display:flex;gap:4px;align-items:center}
+  .grid-sel span{font-size:11px;font-weight:600;color:var(--dim);margin-right:2px}
+  .gbtn{font-family:inherit;font-size:11px;font-weight:600;padding:4px 10px;
+    border:1.5px solid var(--border);border-radius:5px;background:var(--panel);color:var(--dim);cursor:pointer;transition:all .15s}
+  .gbtn:hover{border-color:var(--accent);color:var(--accent)}
+  .gbtn.gactive{border-color:var(--accent);background:rgba(37,99,235,.08);color:var(--accent)}
   .legend{margin-top:6px;display:flex;gap:16px;flex-wrap:wrap;justify-content:center}
   .li{display:flex;align-items:center;gap:4px;font-size:11px;font-weight:500;color:var(--dim)}
   .ld{width:8px;height:8px;border-radius:50%}
@@ -44,6 +50,14 @@
 </style>
 </head>
 <body>
+<!-- Grid size selector -->
+<div class="grid-sel">
+  <span>Grid</span>
+  <button class="gbtn" onclick="setGrid(5,this)">5&times;5</button>
+  <button class="gbtn gactive" onclick="setGrid(7,this)">7&times;7</button>
+  <button class="gbtn" onclick="setGrid(10,this)">10&times;10</button>
+</div>
+
 <!-- Controls: 3 rows -->
 <div class="ctrl-stack">
   <div class="ctrl-row">
@@ -97,7 +111,7 @@
 
 <script>
 // ===================== CONSTANTS =====================
-const G = 5;
+let G = 7;
 const S = 220;
 const SC = 260;
 const PAD = 26;
@@ -108,6 +122,17 @@ const FOCAL = 3;
 let mode = 'fwd';
 let fetchMode = 'nearest';
 
+function dotR() { return G <= 5 ? 7 : G <= 7 ? 5 : 3.5; }
+function dotRScene() { return G <= 5 ? 3 : G <= 7 ? 2.5 : 2; }
+
+function setGrid(n, btn) {
+  G = n;
+  document.querySelectorAll('.gbtn').forEach(b => b.classList.remove('gactive'));
+  btn.classList.add('gactive');
+  buildColors();
+  render();
+}
+
 function setFetch(fm) {
   fetchMode = fm;
   document.getElementById('fNearest').className = fm === 'nearest' ? 'btn fbtn active-fetch' : 'btn fbtn';
@@ -116,24 +141,29 @@ function setFetch(fm) {
 }
 
 // ===================== COLORS =====================
-const COL_HSL = [], COL_RGB = [];
-for (let i = 0; i < G * G; i++) {
-  const h = (i * 360 / (G * G)) % 360;
-  const s = 75;
-  const l = (i % 2 === 0) ? 45 : 58;
-  COL_HSL.push(`hsl(${h},${s}%,${l}%)`);
-  const a = s / 100 * Math.min(l / 100, 1 - l / 100);
-  const fn = n => { const k = (n + h / 30) % 12; return l / 100 - a * Math.max(Math.min(k - 3, 9 - k, 1), -1); };
-  COL_RGB.push([Math.round(fn(0) * 255), Math.round(fn(8) * 255), Math.round(fn(4) * 255)]);
+let COL_HSL = [], COL_RGB = [];
+function buildColors() {
+  COL_HSL = []; COL_RGB = [];
+  for (let i = 0; i < G * G; i++) {
+    const h = (i * 360 / (G * G)) % 360;
+    const s = 75;
+    const l = (i % 2 === 0) ? 45 : 58;
+    COL_HSL.push(`hsl(${h},${s}%,${l}%)`);
+    const a = s / 100 * Math.min(l / 100, 1 - l / 100);
+    const fn = n => { const k = (n + h / 30) % 12; return l / 100 - a * Math.max(Math.min(k - 3, 9 - k, 1), -1); };
+    COL_RGB.push([Math.round(fn(0) * 255), Math.round(fn(8) * 255), Math.round(fn(4) * 255)]);
+  }
 }
+buildColors();
 function rgbStr(r, g, b) { return `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`; }
 
 // ===================== 3D SCENE =====================
 function mkPts() {
   const p = [];
+  const half = (G - 1) / 2;
   for (let r = 0; r < G; r++)
     for (let c = 0; c < G; c++)
-      p.push({ x: -2 + c, y: -2 + r, z: 6 });
+      p.push({ x: (c - half) * (4 / (G - 1)), y: (r - half) * (4 / (G - 1)), z: 6 });
   return p;
 }
 
@@ -247,7 +277,10 @@ function drawScene(cam1, cam2, pts) {
   const w2c = (wx, wz) => ({ sx: cx + wx * scale, sy: cy + (wz - 3) * scale });
 
   // Scene plane background
-  const pTL = w2c(-2.5, 5.5), pBR = w2c(2.5, 6.5);
+  const half = (G - 1) / 2;
+  const step = 4 / (G - 1);
+  const ext = half * step + step * 0.5;
+  const pTL = w2c(-ext, 6 - step * 0.5), pBR = w2c(ext, 6 + step * 0.5);
   ctx.fillStyle = 'rgba(37,99,235,.05)';
   ctx.fillRect(pTL.sx, pTL.sy, pBR.sx - pTL.sx, pBR.sy - pTL.sy);
   ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
@@ -256,7 +289,7 @@ function drawScene(cam1, cam2, pts) {
   // Points
   pts.forEach((p, i) => {
     const { sx, sy } = w2c(p.x, p.z);
-    ctx.beginPath(); ctx.arc(sx, sy, 3, 0, Math.PI * 2);
+    ctx.beginPath(); ctx.arc(sx, sy, dotRScene(), 0, Math.PI * 2);
     ctx.fillStyle = COL_HSL[i]; ctx.fill();
   });
 
@@ -314,8 +347,8 @@ function drawSource(pr1) {
   pr1.forEach((p, i) => {
     if (!vis(p)) return;
     const { px, py } = uv2px(p.u, p.v);
-    if (px < PAD - 8 || px > S - PAD + 8 || py < PAD - 8 || py > S - PAD + 8) return;
-    ctx.beginPath(); ctx.arc(px, py, 7, 0, Math.PI * 2);
+    if (px < PAD - dotR() - 1 || px > S - PAD + dotR() + 1 || py < PAD - dotR() - 1 || py > S - PAD + dotR() + 1) return;
+    ctx.beginPath(); ctx.arc(px, py, dotR(), 0, Math.PI * 2);
     ctx.fillStyle = COL_HSL[i]; ctx.fill();
   });
 }
@@ -327,7 +360,7 @@ function renderForward(pr1, pr2, tgt) {
     if (!vis(pr1[i])) continue;
     if (!vis(pr2[i])) continue;
     const { px, py } = uv2px(pr2[i].u, pr2[i].v);
-    if (px < PAD - 8 || px > S - PAD + 8 || py < PAD - 8 || py > S - PAD + 8) continue;
+    if (px < PAD - dotR() - 1 || px > S - PAD + dotR() + 1 || py < PAD - dotR() - 1 || py > S - PAD + dotR() + 1) continue;
     landed.push({ px, py, i });
   }
 
@@ -335,15 +368,15 @@ function renderForward(pr1, pr2, tgt) {
   for (let a = 0; a < landed.length; a++) {
     for (let b = a + 1; b < landed.length; b++) {
       const dx = landed[a].px - landed[b].px, dy = landed[a].py - landed[b].py;
-      if (Math.sqrt(dx * dx + dy * dy) < 14) { overlapIdx.add(a); overlapIdx.add(b); }
+      if (Math.sqrt(dx * dx + dy * dy) < dotR() * 2) { overlapIdx.add(a); overlapIdx.add(b); }
     }
   }
 
   landed.forEach((l, li) => {
-    tgt.beginPath(); tgt.arc(l.px, l.py, 7, 0, Math.PI * 2);
+    tgt.beginPath(); tgt.arc(l.px, l.py, dotR(), 0, Math.PI * 2);
     tgt.fillStyle = COL_HSL[l.i]; tgt.fill();
     if (overlapIdx.has(li)) {
-      tgt.beginPath(); tgt.arc(l.px, l.py, 10, 0, Math.PI * 2);
+      tgt.beginPath(); tgt.arc(l.px, l.py, dotR() + 3, 0, Math.PI * 2);
       tgt.strokeStyle = '#d97706'; tgt.lineWidth = 2; tgt.stroke();
     }
   });
@@ -356,8 +389,8 @@ function renderForward(pr1, pr2, tgt) {
     if (!vis(pr2all[i])) continue;
     if (landedSet.has(i)) continue;
     const { px, py } = uv2px(pr2all[i].u, pr2all[i].v);
-    if (px < PAD - 8 || px > S - PAD + 8 || py < PAD - 8 || py > S - PAD + 8) continue;
-    tgt.beginPath(); tgt.arc(px, py, 6, 0, Math.PI * 2);
+    if (px < PAD - dotR() - 1 || px > S - PAD + dotR() + 1 || py < PAD - dotR() - 1 || py > S - PAD + dotR() + 1) continue;
+    tgt.beginPath(); tgt.arc(px, py, dotR() - 1, 0, Math.PI * 2);
     tgt.setLineDash([2.5, 2.5]); tgt.strokeStyle = '#94a3b8'; tgt.lineWidth = 1.5; tgt.stroke();
     tgt.setLineDash([]);
   }
@@ -381,7 +414,7 @@ function renderBackward(cam1, cam2, tgt) {
 
       const hit = unproj(cam2, tu, tv, 6);
       if (!hit) {
-        tgt.beginPath(); tgt.arc(tpx, tpy, 6, 0, Math.PI * 2);
+        tgt.beginPath(); tgt.arc(tpx, tpy, dotR() - 1, 0, Math.PI * 2);
         tgt.setLineDash([2, 2]); tgt.strokeStyle = '#94a3b8'; tgt.lineWidth = 1; tgt.stroke();
         tgt.setLineDash([]);
         continue;
@@ -389,16 +422,18 @@ function renderBackward(cam1, cam2, tgt) {
 
       const sp = proj(cam1, hit);
       if (!sp || !vis(sp)) {
-        tgt.beginPath(); tgt.arc(tpx, tpy, 6, 0, Math.PI * 2);
+        tgt.beginPath(); tgt.arc(tpx, tpy, dotR() - 1, 0, Math.PI * 2);
         tgt.fillStyle = 'rgba(148,163,184,0.2)'; tgt.fill();
         continue;
       }
 
-      const sc = hit.x + 2;
-      const sr = hit.y + 2;
+      const half = (G - 1) / 2;
+      const step = 4 / (G - 1);
+      const sc = hit.x / step + half;
+      const sr = hit.y / step + half;
 
       if (sc < -0.5 || sc > G - 0.5 || sr < -0.5 || sr > G - 0.5) {
-        tgt.beginPath(); tgt.arc(tpx, tpy, 6, 0, Math.PI * 2);
+        tgt.beginPath(); tgt.arc(tpx, tpy, dotR() - 1, 0, Math.PI * 2);
         tgt.fillStyle = 'rgba(148,163,184,0.2)'; tgt.fill();
         continue;
       }
@@ -411,12 +446,12 @@ function renderBackward(cam1, cam2, tgt) {
         if (!color) color = fetchNearest(sc, sr);
       }
 
-      tgt.beginPath(); tgt.arc(tpx, tpy, 7, 0, Math.PI * 2);
+      tgt.beginPath(); tgt.arc(tpx, tpy, dotR(), 0, Math.PI * 2);
       tgt.fillStyle = color; tgt.fill();
 
       const src = document.getElementById('c1').getContext('2d');
       const { px: spx, py: spy } = uv2px(sp.u, sp.v);
-      if (spx >= PAD - 4 && spx <= S - PAD + 4 && spy >= PAD - 4 && spy <= S - PAD + 4) {
+      if (spx >= PAD - dotR() && spx <= S - PAD + dotR() && spy >= PAD - dotR() && spy <= S - PAD + dotR()) {
         src.save();
         src.globalAlpha = 0.4;
         src.beginPath(); src.arc(spx, spy, 3, 0, Math.PI * 2);
